@@ -3,7 +3,7 @@
 (define (domain default)
     (:requirements :strips)
     (:predicates 
-        (is-tile ?t) (is-delivery-tile ?t) (is-up ?t1 ?t2) (is-right ?t1 ?t2) (is-down ?t1 ?t2 ) (is-left ?t1 ?t2) (is-pack ?p) (pack-in ?p ?t ) (is-carried ?p) (on ?t) (holding ?p) (free)
+        (is-tile ?t) (is-delivery-tile ?t) (obstacle ?t) (is-up ?t1 ?t2) (is-right ?t1 ?t2) (is-down ?t1 ?t2 ) (is-left ?t1 ?t2) (is-pack ?p) (pack-in ?p ?t ) (is-carried ?p) (on ?t) (holding ?p) (free)
     )
     (:action pick-up
         :parameters     (?p ?t)
@@ -17,22 +17,22 @@
     )
     (:action move-up
         :parameters     (?t1 ?t2)
-        :precondition   (and (is-tile ?t1) (is-tile ?t2) (is-up ?t1 ?t2) (on ?t1))
+        :precondition   (and (is-tile ?t1) (is-tile ?t2) (is-up ?t1 ?t2) (on ?t1) (not (obstacle ?t2)))
         :effect         (and (not (on ?t1)) (on ?t2))
     )
     (:action move-right
         :parameters     (?t1 ?t2)
-        :precondition   (and (is-tile ?t1) (is-tile ?t2) (is-right ?t1 ?t2) (on ?t1))
+        :precondition   (and (is-tile ?t1) (is-tile ?t2) (is-right ?t1 ?t2) (on ?t1) (not (obstacle ?t2)))
         :effect         (and (not (on ?t1)) (on ?t2))
     )
     (:action move-down
         :parameters     (?t1 ?t2)
-        :precondition   (and (is-tile ?t1) (is-tile ?t2) (is-down ?t1 ?t2) (on ?t1))
+        :precondition   (and (is-tile ?t1) (is-tile ?t2) (is-down ?t1 ?t2) (on ?t1)  (not (obstacle ?t2)))
         :effect         (and (not (on ?t1)) (on ?t2))
     )
     (:action move-left
         :parameters     (?t1 ?t2)
-        :precondition   (and (is-tile ?t1) (is-tile ?t2) (is-left ?t1 ?t2) (on ?t1))
+        :precondition   (and (is-tile ?t1) (is-tile ?t2) (is-left ?t1 ?t2) (on ?t1)  (not (obstacle ?t2)))
         :effect         (and (not (on ?t1)) (on ?t2))
     )
 )

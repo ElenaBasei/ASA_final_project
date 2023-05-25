@@ -8,7 +8,7 @@ class Beliefs {
     me = {};
 
     /**
-     * @type {Map[{id:string, name:string, x:number, y:number, score:number}]}
+     * @type {Map{id:string, name:string, x:number, y:number, score:number}}
     */
     dbAgents = new Map();
 
@@ -28,58 +28,20 @@ class Beliefs {
             this.me.score = score;
         } );
 
-        // client.onAgentsSensing( async (agents) => {
-        //     for (const a of agents) {
-        
-        //         if ( ! this.dbAgents.has( a.id) ) {
-        
-        //             this.dbAgents.set( a.id, [a] );
-        
-        //         } else {
-        
-        //             const history = this.dbAgents.get( a.id );
-        //             history.push(a);
-        
-        //         }
-        //     }
-        
-        //     for ( const [id,history] of this.dbAgents.entries() ) {
-        
-        //         const last = history[history.length-1];
-        //         const second_last = (history.length>1 ? history[history.length-2] : 'no knowledge');
-        
-        //         if ( ! agents.map( a=>a.id ).includes( id ) ) {
-        //             // If I am not seeing him anymore
-                    
-        //             if ( last != 'lost' ) {
-        //                 // Just went off
-        
-        //                 history.push( 'lost' );
-        
-        //             } else {
-        //                 // A while since last time I saw him
-                        
-        //                 if ( distance(me, second_last) <= 3 ) {
-        //                     this.dbAgents.delete(id);
-        //                 }
-        
-        //             }
-        
-        //         } else { // If I am still seing him ... see above
-        //             // console.log( 'still seing him', last.name )
-        //         }
-        
-        //     }
-        // });
+        client.onAgentsSensing( async (agents) => {
+            for (const a of agents) {
+                this.dbAgents.set(a.id, a);
+            }
+        });
 
         client.onParcelsSensing( async ( perceived_parcels ) => {
             if(this.config[0].PARCEL_DECADING_INTERVAL != 'infinite'){
                 const now = Date.now();
                 for (const p of this.dbParcels) {
-                    var time_diff = parseInt((now - p.observtion_time)/1000);
+                    var time_diff = parseFloat((now - p[1].observtion_time)/1000);
                     time_diff /= this.config[0].PARCEL_DECADING_INTERVAL;
                     p[1].reward -= parseInt(time_diff);
-
+                    p[1].observtion_time = now;
                     if(p[1].reward <= 0)
                         this.dbParcels.delete(p.id);
                 }
@@ -88,11 +50,10 @@ class Beliefs {
                     if(this.dbParcels.has(p.id) && p.carriedBy != null && p.carriedBy != this.me.id)
                         this.dbParcels.delete(p.id);
                     else if ( this.dbParcels.has(p.id) ) {
-                        var p_time = {
-                            ...p,
-                            'observtion_time' : now
-                        };
-                        this.dbParcels.set(p_time.id, p_time);
+                        const par = this.dbParcels.get(p.id);
+                        par.observtion_time = now;
+                        par.reward = p.reward;
+                        this.dbParcels.set(p.id, par);
                     }
                 }
             }  
@@ -126,6 +87,12 @@ class Beliefs {
 
         if(!holding){
             myBeliefset.declare('free')
+        }
+
+        for(const a of this.dbAgents){
+            let x = ((a[1].x%1 == 0.4) ? parseInt(a[1].x) : ((a[1].x%1 == 0.6) ? parseInt(a[1].x)+1 : parseInt(a[1].x)))
+            let y = ((a[1].y%1 == 0.4) ? parseInt(a[1].y) : ((a[1].y%1 == 0.6) ? parseInt(a[1].y)+1 : parseInt(a[1].y)))
+            myBeliefset.declare('obstacle tile' + x + '_' + y)
         }
 
         return myBeliefset;

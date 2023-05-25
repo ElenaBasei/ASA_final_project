@@ -89,7 +89,16 @@ client.onParcelsSensing( async (parcels) => {
     */
     if(best_option){
         beliefs.dbParcels.set( best_option.args[0].id, best_option.args[0]);
-        await agent.push( best_option );
+        var status = await agent.push( best_option )
+        .catch( error => {
+            console.error('push', error);
+            beliefs.dbParcels.delete( best_option.args[0].id);
+            return false;
+        });
+
+        if(!status){
+            beliefs.dbParcels.delete( best_option.args[0].id);
+        }
     }
 })
 

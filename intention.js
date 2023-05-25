@@ -127,7 +127,7 @@ class Intention {
 
             // and plan is executed and result returned
             try {
-                await planner.exec_plan([step]);
+                await planner.exec_plan(step);
             // or errors are caught so to continue with next plan
             } catch (error) {
                 console.log( 'failed intention', this.predicate, 'with error:', error);

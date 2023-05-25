@@ -54,21 +54,25 @@ class Agent {
                     continue;
                 }
 
-                //while(!success && achive_trial<5 && !stopped){
+                while(!success && achive_trial<5 && !stopped){
                     var status = await this.intention.element.achieve(this.planner, this.beliefs, this.env_map)
+                                        .catch( error => {
+                                            console.error('intention.element.achieve', error);
+                                            return 'failed intention';
+                                        })
                     console.log(status);
                     if(status[0] == 'stopped intention'){
                         stopped = true;
                     }
                     else if(status[0] == 'failed intention' || status[0] == 'plan not found'){
                         failed = true;
-                        //achive_trial+=1;
-                        //this.intention.element.resume();
+                        achive_trial+=1;
+                        this.intention.element.resume();
                     }
                     else if(status[0] == 'succesful intention'){
                         success = true;
                     }
-                //}
+                }
 
                 // Remove from the queue
                 if(success || failed){
@@ -104,6 +108,10 @@ class Agent {
 
                 // Start achieving intention
                 var status = await this.intention.element.achieve(this.planner, this.beliefs, this.env_map)
+                                    .catch( error => {
+                                        console.error('intention.element.achieve', error);
+                                        return 'failed intention';
+                                    })
                 console.log('here',status);
                 if(status[0] == 'stopped intention'){
                     stopped = true;
@@ -114,185 +122,230 @@ class Agent {
 
             }
             // Postpone next iteration at setImmediate
-            console.log('control print 1');
             await new Promise( res => setImmediate( res ) )
             .catch(error => {
                 console.log('unknown error', error);
             });
-            console.log('control print 2');
         }
     }
 
     // Add new intention
     async push ( predicate ) {
-        console.log( 'Revising intention queue. Received', predicate );        
-        this.revising_queue = true;
+        if(!this.revising_queue){
+            console.log( 'Revising intention queue. Received', predicate );        
+            this.revising_queue = true;
 
-        const first_intention = this.intention_queue[0];
-        this.stop();
+            this.stop();
 
-        // intention queue revision is case of random_move as first intention queued
-        // TODO: change to spown tiles
-        if(this.intention != null && this.intention.element.predicate.desire == 'random_move' && predicate){
+            // intention queue revision is case of random_move as first intention queued
+            // TODO: change to spown tiles
+            if(this.intention != null && this.intention.element.predicate.desire == 'random_move' && predicate){
 
-            console.log('random')
-            var new_intention = new QElement(new Intention(this,predicate));
+                console.log('random')
+                var new_intention = new QElement(new Intention(this,predicate));
 
-            this.intention_queue.push(new_intention);
-
-            this.revising_queue = false;
-            return new Promise( res => setImmediate( res ) );
-        }
-        else if(predicate) { //order intention based on utility function (reward - cost)
-            const total_distance = await this.update_distance();
-            const total_reward = this.update_reward();
-            
-            var insertion_index=0;
-            var best_utility;
-            var act_utility;
-            var new_intention = new QElement(new Intention(this,predicate))
-
-            for(var i=0; i<=this.intention_queue.length; i++){
-                if(i==0){
-                    var holding_string = [];
-                    for(const parc of this.intention_queue[i].element.predicate.args){
-                        holding_string.push('(holding ' + parc.id + ')');
-                    }
-                    holding_string.push('(holding ' + predicate.args[0].id + ')');
-
-                    var myBeliefset = this.beliefs.generate_beliefs_set();
-                    myBeliefset = this.env_map.update_belief_set(myBeliefset);
-
-                    var pddlProblem = new PddlProblem(
-                        'game_domain',
-                        myBeliefset.objects.join(' '),
-                        myBeliefset.toPddlString(),
-                        'and (exists (?t) (and (on ?t) (is-delivery-tile ?t) ' + holding_string.join(' ') + '))'
-                    );
-
-                    var plan = await this.planner.find_plan(pddlProblem);
-                    var plan_lenght = plan.length;
-                    plan = plan[plan_lenght-1];
-                    plan = plan.args[1].replace('tile','');
-                    plan = plan.split('_')
-                    var delivery_difference = this.h({x:this.intention_queue[i].delivery_x, y:this.intention_queue[i].delivery_y}, {x:parseInt(plan[0]), y:parseInt(plan[1])});
-
-                    if(this.config[0].PARCEL_DECADING_INTERVAL == 'infinite'){
-                        best_utility = total_distance - this.intention_queue[i].cost + delivery_difference + plan_lenght + 1
-                    }
-                    else{
-                        best_utility = total_reward + predicate.args[0].reward - ((total_distance - this.intention_queue[i].cost + delivery_difference + plan.length + 1) *
-                            this.config[0].MOVEMENT_STEPS / 1000 / this.config[0].PARCEL_DECADING_INTERVAL);
-                    }
-                }
-                else if(i==this.intention_queue.length){
-
-
-                    var myBeliefset = this.beliefs.generate_beliefs_set(false);
-                    myBeliefset = this.env_map.update_belief_set(myBeliefset);
-                    myBeliefset.declare('on tile' + this.intention_queue[i-1].delivery_x + '_' + this.intention_queue[i-1].delivery_y);
-
-                    var pddlProblem = new PddlProblem(
-                        'game_domain',
-                        myBeliefset.objects.join(' '),
-                        myBeliefset.toPddlString(),
-                        'and (exists (?t) (and (on ?t) (is-delivery-tile ?t) (holding ' + predicate.args[0].id + ')))'
-                    );
-
-                    //pddlProblem.saveToFile();
-                    var plan = await this.planner.find_plan(pddlProblem);
-                    var plan_lenght = plan.length;
-
-                    if(this.config[0].PARCEL_DECADING_INTERVAL == 'infinite'){
-                        act_utility = total_distance + plan_lenght + 1
-
-                        if( best_utility > act_utility){
-                            best_utility = act_utility;
-                            insertion_index = i;
-                        }
-                    }
-                    else{
-                        delivery_difference = h({x:x1, y:y1}, {x:x2, y:y2})
-                        act_utility = total_reward + predicate.args[0].reward - ((total_distance + plan_lenght + 1) *
-                            this.config[0].MOVEMENT_STEPS / 1000 / this.config[0].PARCEL_DECADING_INTERVAL);
-
-                        if( best_utility < act_utility){
-                            best_utility = act_utility;
-                            insertion_index = i;
-                        }
-                    }
-
-
-                }
-                else {
-                    var holding_string = [];
-                    for(const parc of this.intention_queue[i].element.predicate.args){
-                        holding_string.push('(holding ' + parc.id + ')');
-                    }
-                    holding_string.push('(holding ' + predicate.args[0].id + ')');
-
-                    var myBeliefset = this.beliefs.generate_beliefs_set(false);
-                    myBeliefset = this.env_map.update_belief_set(myBeliefset);
-                    myBeliefset.declare('on tile' + this.intention_queue[i-1].delivery_x + '_' + this.intention_queue[i-1].delivery_y);
-
-                    var pddlProblem = new PddlProblem(
-                        'game_domain',
-                        myBeliefset.objects.join(' '),
-                        myBeliefset.toPddlString(),
-                        'and (exists (?t) (and (on ?t) (is-delivery-tile ?t) ' + holding_string.join(' ') + '))'
-                    );
-
-                    var plan = await this.planner.find_plan(pddlProblem);
-                    var plan_lenght = plan.length;
-                    plan = plan[plan_lenght-1];
-                    plan = plan.args[1].replace('tile','');
-                    plan = plan.split('_')
-                    var delivery_difference = this.h({x:this.intention_queue[i].delivery_x, y:this.intention_queue[i].delivery_y}, {x:parseInt(plan[0]), y:parseInt(plan[1])});
-
-                    if(this.config[0].PARCEL_DECADING_INTERVAL == 'infinite'){
-                        act_utility = total_distance - this.intention_queue[i].cost + delivery_difference + plan_lenght + 1
-
-                        if( best_utility > act_utility){
-                            best_utility = act_utility;
-                            insertion_index = i;
-                        }
-                    }
-                    else{
-                        act_utility = total_reward + predicate.args[0].reward - ((total_distance - this.intention_queue[i].cost + delivery_difference + plan.length + 1) *
-                            this.config[0].MOVEMENT_STEPS / 1000 / this.config[0].PARCEL_DECADING_INTERVAL);
-
-                        if( best_utility < act_utility){
-                            best_utility = act_utility;
-                            insertion_index = i;
-                        }
-                    }
-                }
-            }
-
-            if(insertion_index == this.intention_queue.length){
                 this.intention_queue.push(new_intention);
+
+                this.revising_queue = false;
+                this.intention = null;
+                await new Promise( res => setImmediate( res ) );
+                return true;
             }
-            else{
-                this.intention_queue[insertion_index].element.predicate.args.push(predicate.args[0]);
+            else if(predicate) { //order intention based on utility function (reward - cost)
+                console.log(this.intention_queue.length)
+                const total_distance = await this.update_distance()
+                                            .catch( error => {
+                                                console.error('update_distance', error);
+                                                return -1;
+                                            });
+                if(total_distance == -1){
+                    this.revising_queue = false;
+                    await new Promise( res => setImmediate( res ) );
+                    return false;
+                }
+
+                const total_reward = this.update_reward();
+                
+                var insertion_index=0;
+                var best_utility;
+                var act_utility;
+                var new_intention = new QElement(new Intention(this,predicate))
+
+                for(var i=0; i<=this.intention_queue.length; i++){
+                    if(i==0){
+                        var holding_string = [];
+                        for(const parc of this.intention_queue[i].element.predicate.args){
+                            holding_string.push('(holding ' + parc.id + ')');
+                        }
+                        holding_string.push('(holding ' + predicate.args[0].id + ')');
+
+                        var myBeliefset = this.beliefs.generate_beliefs_set();
+                        myBeliefset = this.env_map.update_belief_set(myBeliefset);
+
+                        var pddlProblem = new PddlProblem(
+                            'game_domain',
+                            myBeliefset.objects.join(' '),
+                            myBeliefset.toPddlString(),
+                            'and (exists (?t) (and (on ?t) (is-delivery-tile ?t) ' + holding_string.join(' ') + '))'
+                        );
+
+                        var plan = await this.planner.find_plan(pddlProblem)
+                                        .catch( error => {
+                                            console.error('find_plan', error);
+                                            return null;
+                                        });
+                        if(!plan){
+                            this.revising_queue = false;
+                            await new Promise( res => setImmediate( res ) );
+                            return false;
+                        }
+                        var plan_length = plan.length;
+                        plan = plan[plan_length-1];
+                        plan = plan.args[1].replace('tile','');
+                        plan = plan.split('_')
+                        var delivery_difference = this.h({x:this.intention_queue[i].delivery_x, y:this.intention_queue[i].delivery_y}, {x:parseInt(plan[0]), y:parseInt(plan[1])});
+
+                        if(this.config[0].PARCEL_DECADING_INTERVAL == 'infinite'){
+                            best_utility = total_distance - this.intention_queue[i].cost + delivery_difference + plan_length + 1
+                        }
+                        else{
+                            best_utility = total_reward + predicate.args[0].reward - ((total_distance - this.intention_queue[i].cost + delivery_difference + plan_length + 1) *
+                                this.config[0].MOVEMENT_DURATION / 1000 / this.config[0].PARCEL_DECADING_INTERVAL, this.intention_queue[i].cost);
+                        }
+                    }
+                    else if(i==this.intention_queue.length){
+
+
+                        var myBeliefset = this.beliefs.generate_beliefs_set(false);
+                        myBeliefset = this.env_map.update_belief_set(myBeliefset);
+                        myBeliefset.declare('on tile' + this.intention_queue[i-1].delivery_x + '_' + this.intention_queue[i-1].delivery_y);
+
+                        var pddlProblem = new PddlProblem(
+                            'game_domain',
+                            myBeliefset.objects.join(' '),
+                            myBeliefset.toPddlString(),
+                            'and (exists (?t) (and (on ?t) (is-delivery-tile ?t) (holding ' + predicate.args[0].id + ')))'
+                        );
+
+                        //pddlProblem.saveToFile();
+                        var plan = await this.planner.find_plan(pddlProblem)
+                                        .catch( error => {
+                                            console.error('find_plan', error);
+                                            return null;
+                                        });
+                        if(!plan){
+                            this.revising_queue = false;
+                            await new Promise( res => setImmediate( res ) );
+                            return false;
+                        }
+                        
+                        var plan_length = plan.length;
+
+                        if(this.config[0].PARCEL_DECADING_INTERVAL == 'infinite'){
+                            act_utility = total_distance + plan_length + 1
+
+                            if( best_utility > act_utility){
+                                best_utility = act_utility;
+                                insertion_index = i;
+                            }
+                        }
+                        else{
+                            act_utility = total_reward + predicate.args[0].reward - ((total_distance + plan_length + 1) *
+                                this.config[0].MOVEMENT_DURATION / 1000 / this.config[0].PARCEL_DECADING_INTERVAL);
+
+                            if( best_utility < act_utility){
+                                best_utility = act_utility;
+                                insertion_index = i;
+                            }
+                        }
+
+
+                    }
+                    else {
+                        var holding_string = [];
+                        for(const parc of this.intention_queue[i].element.predicate.args){
+                            holding_string.push('(holding ' + parc.id + ')');
+                        }
+                        holding_string.push('(holding ' + predicate.args[0].id + ')');
+
+                        var myBeliefset = this.beliefs.generate_beliefs_set(false);
+                        myBeliefset = this.env_map.update_belief_set(myBeliefset);
+                        myBeliefset.declare('on tile' + this.intention_queue[i-1].delivery_x + '_' + this.intention_queue[i-1].delivery_y);
+
+                        var pddlProblem = new PddlProblem(
+                            'game_domain',
+                            myBeliefset.objects.join(' '),
+                            myBeliefset.toPddlString(),
+                            'and (exists (?t) (and (on ?t) (is-delivery-tile ?t) ' + holding_string.join(' ') + '))'
+                        );
+
+                        var plan = await this.planner.find_plan(pddlProblem)
+                                        .catch( error => {
+                                            console.error('find_plan', error);
+                                            return null;
+                                        });
+                        if(!plan){
+                            this.revising_queue = false;
+                            await new Promise( res => setImmediate( res ) );
+                            return false;
+                        }
+
+                        var plan_length = plan.length;
+                        plan = plan[plan_length-1];
+                        plan = plan.args[1].replace('tile','');
+                        plan = plan.split('_')
+                        var delivery_difference = this.h({x:this.intention_queue[i].delivery_x, y:this.intention_queue[i].delivery_y}, {x:parseInt(plan[0]), y:parseInt(plan[1])});
+
+                        if(this.config[0].PARCEL_DECADING_INTERVAL == 'infinite'){
+                            act_utility = total_distance - this.intention_queue[i].cost + delivery_difference + plan_length + 1
+
+                            if( best_utility > act_utility){
+                                best_utility = act_utility;
+                                insertion_index = i;
+                            }
+                        }
+                        else{
+                            act_utility = total_reward + predicate.args[0].reward - ((total_distance - this.intention_queue[i].cost + delivery_difference + plan_length + 1) *
+                                this.config[0].MOVEMENT_DURATION / 1000 / this.config[0].PARCEL_DECADING_INTERVAL);
+
+                            if( best_utility < act_utility){
+                                best_utility = act_utility;
+                                insertion_index = i;
+                            }
+                        }
+                    }
+                }
+
+                if(insertion_index == this.intention_queue.length){
+                    this.intention_queue.push(new_intention);
+                }
+                else{
+                    this.intention_queue[insertion_index].element.predicate.args.push(predicate.args[0]);
+                }
             }
+
+            // // - eventually stop current one
+            // if(this.intention_queue[0] != first_intention){
+            //     this.stop();
+            // }
+
+            //TODO: check validity
+
+            console.log('finished')
+            this.revising_queue = false;
+            this.resume();
+            await new Promise( res => setImmediate( res ) );
+            return true;
         }
-
-        // // - eventually stop current one
-        // if(this.intention_queue[0] != first_intention){
-        //     this.stop();
-        // }
-
-        //TODO: check validity
-
-        console.log('finished')
-        this.revising_queue = false;
-        this.resume();
-        return new Promise( res => setImmediate( res ) );
+        else{
+            return false
+        }
     }
 
     async stop ( ) {
         console.log( 'stop agent queued intentions');
-        this.intention.element.stop();
+        if (this.intention)
+            this.intention.element.stop();
         for (const intention of this.intention_queue) {
             intention.element.stop();
         }
@@ -300,7 +353,8 @@ class Agent {
 
     async resume ( ) {
         console.log( 'resume agent queued intentions');
-        this.intention.element.resume();
+        if (this.intention)
+            this.intention.element.resume();
         for (const intention of this.intention_queue) {
             intention.element.resume();
         }
@@ -339,7 +393,15 @@ class Agent {
                 'and (exists (?t) (and (on ?t) (is-delivery-tile ?t) ' + holding_string.join(' ') + '))'
             );
 
-            var plan = await this.planner.find_plan(pddlProblem);
+            var plan = await this.planner.find_plan(pddlProblem)
+                            .catch( error => {
+                                console.error('find_plan', error);
+                                return null;
+                            });
+            if(!plan){
+                return -1;
+            }
+            
             this.intention_queue[i].cost = plan.length + 1;
             plan = plan[plan.length-1];
             plan = plan.args[1].replace('tile','');
@@ -358,7 +420,8 @@ class Agent {
     update_reward(){
         var total_reward = 0
         for(var i=0; i<this.intention_queue.length; i++){
-            total_reward += this.intention_queue[i].reward;
+            for(var j=0; j<this.intention_queue[i].element.predicate.args.length; j++)
+            total_reward += this.intention_queue[i].element.predicate.args[j].reward;
         }
 
         return total_reward;

@@ -4,9 +4,11 @@ import fs from 'fs';
 
 class Planner {
 
+    actions = {}
+
     constructor(client, beliefs){
 
-        const pick_up = new PddlAction(
+        var action = new PddlAction(
             'pick-up',
             '?p ?t',
             'and (is-tile ?t) (is-pack ?p) (not (is-carried ?p)) (on ?t) (pack-in ?p ?t)',
@@ -20,7 +22,9 @@ class Planner {
             }
         );
 
-        const put_down = new PddlAction(
+        this.actions[action.name.toLowerCase()] = action;
+
+        action = new PddlAction(
             'put-down',
             '?t',
             'and (is-tile ?t) (is-delivery-tile ?t) (on ?t) (not (free))',
@@ -41,60 +45,97 @@ class Planner {
             }
         );
 
-        const move_up = new PddlAction(
+        this.actions[action.name.toLowerCase()] = action;
+
+        action = new PddlAction(
             'move-up',
             '?t1 ?t2',
             'and (is-tile ?t1) (is-tile ?t2) (is-up ?t1 ?t2) (on ?t1)',
             'and (not (on ?t1)) (on ?t2)',
             async ( args ) => {
-                let status = await client.move('up');
-                if(!status)
+                let status = await client.move('up')
+                .catch( error => {
+                    console.error('move_up', error);
                     throw [ 'failed movement']
+                });
+                
+                if(!status){
+                    throw [ 'failed movement']
+                }
             }
         );
 
-        const move_right = new PddlAction(
+        this.actions[action.name.toLowerCase()] = action;
+
+        action = new PddlAction(
             'move-right',
             '?t1 ?t2',
             'and (is-tile ?t1) (is-tile ?t2) (is-right ?t1 ?t2) (on ?t1)',
             'and (not (on ?t1)) (on ?t2)',
             async ( args ) => {
-                let status = await client.move('right');
-                if(!status)
+                let status = await client.move('right')
+                .catch( error => {
+                    console.error('move_right', error);
                     throw [ 'failed movement']
+                });
+
+                if(!status){
+                    throw [ 'failed movement']
+                }
             }
         );
 
-        const move_down = new PddlAction(
+        this.actions[action.name.toLowerCase()] = action;
+
+        action = new PddlAction(
             'move-down',
             '?t1 ?t2',
             'and (is-tile ?t1) (is-tile ?t2) (is-down ?t1 ?t2) (on ?t1)',
             'and (not (on ?t1)) (on ?t2)',
             async ( args ) => {
-                let status = await client.move('down');
-                if(!status)
+                let status = await client.move('down')
+                .catch( error => {
+                    console.error('move_down', error);
                     throw [ 'failed movement']
+                });
+
+                if(!status){
+                    throw [ 'failed movement']
+                }
             }
         );
 
-        const move_left = new PddlAction(
+        this.actions[action.name.toLowerCase()] = action;
+
+        action = new PddlAction(
             'move-left',
             '?t1 ?t2',
             'and (is-tile ?t1) (is-tile ?t2) (is-left ?t1 ?t2) (on ?t1)',
             'and (not (on ?t1)) (on ?t2)',
             async ( args ) => {
-                let status = await client.move('left');
-                if(!status)
+                let status = await client.move('left')
+                .catch( error => {
+                    console.error('move_left', error);
                     throw [ 'failed movement']
+                });
+
+                if(!status){
+                    throw [ 'failed movement']
+                }
             }
         );
+        
+        this.actions[action.name.toLowerCase()] = action;
+        // this.actions = [pick_up, put_down, move_up, move_right, move_down, move_left];
 
-        this.actions = [pick_up, put_down, move_up, move_right, move_down, move_left];
+        // this.pddlExecutor = new PddlExecutor(this.actions[0]);
+        // for(let i=1; i<this.actions.length; i++){
+        //     this.pddlExecutor.addAction(this.actions[i]);
+        // }
+    }
 
-        this.pddlExecutor = new PddlExecutor(this.actions[0]);
-        for(let i=1; i<this.actions.length; i++){
-            this.pddlExecutor.addAction(this.actions[i]);
-        }
+    getAction (name) {
+        return this.actions[name]
     }
 
     async find_plan(pddlProblem){
@@ -114,14 +155,18 @@ class Planner {
         return plan;
     }
 
-    async exec_plan(plan){
-        try{
-            await this.pddlExecutor.exec( plan );
-        }
-        catch (error) {
-            throw[error];
-        }
-        
+    async exec_plan(step){
+        // await this.pddlExecutor.exec( plan )
+        // .catch ( error => {
+        //     throw[error];
+        // });
+
+        let action = this.getAction(step.action);
+        await action.executor(...step.args)
+        .catch (error => {
+            console.log('dvbsb', error);
+            throw [ error ]
+        })        
     }
 
     async setDomain ( path ) {
