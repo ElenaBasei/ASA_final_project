@@ -4,7 +4,7 @@ import * as pddlClient from "@unitn-asa/pddl-client";
 import {Beliefs} from './belief_revision.js';
 import {EnvMap} from './map.js';
 import {AStar} from './astar.js';
-import {Agent} from './agent.js';
+import {Agent} from './agentA.js';
 import { Planner } from "./planner.js";
 
 const client = new DeliverooApi(
@@ -16,19 +16,6 @@ client.onConnect( () => console.log( "socket", client.socket.id ) );
 client.onDisconnect( () => console.log( "disconnected", client.socket.id ) );
 
 const server_config = []
-
-// await new Promise(res => {
-//     client.onConfig((config) => {
-//         server_config = config;
-//         console.log(server_config.PARCEL_DECADING_INTERVAL);
-//         if(server_config.PARCEL_DECADING_INTERVAL != 'infinite')
-//             server_config.PARCEL_DECADING_INTERVAL = parseInt(config.PARCEL_DECADING_INTERVAL.replace('s',''));
-    
-//         console.log(server_config.PARCEL_DECADING_INTERVAL);
-
-//         res()
-//     } )
-// }) 
 
 // Retrive server configuration
 client.onConfig((config) => {
@@ -93,11 +80,14 @@ client.onParcelsSensing( async (parcels) => {
         .catch( error => {
             console.error('push', error);
             beliefs.dbParcels.delete( best_option.args[0].id);
+            agent.revising_queue = false;
             return false;
         });
 
         if(!status){
             beliefs.dbParcels.delete( best_option.args[0].id);
+            agent.revising_queue = false;
+            console.log('uffi')
         }
     }
 })

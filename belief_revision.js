@@ -6,6 +6,7 @@ class Beliefs {
 
     config = {}
     me = {};
+    holding = [];
 
     /**
      * @type {Map{id:string, name:string, x:number, y:number, score:number}}
@@ -23,16 +24,16 @@ class Beliefs {
         client.onYou( ( {id, name, x, y, score} ) => {
             this.me.id = id;
             this.me.name = name;
-            this.me.x = x;
-            this.me.y = y;
+            this.me.x = ((x%1 == 0.4) ? parseInt(x) : ((x%1 == 0.6) ? parseInt(x)+1 : parseInt(x)));
+            this.me.y = ((y%1 == 0.4) ? parseInt(y) : ((y%1 == 0.6) ? parseInt(y)+1 : parseInt(y)))
             this.me.score = score;
         } );
 
-        client.onAgentsSensing( async (agents) => {
-            for (const a of agents) {
-                this.dbAgents.set(a.id, a);
-            }
-        });
+        // client.onAgentsSensing( async (agents) => {
+        //     for (const a of agents) {
+        //         this.dbAgents.set(a.id, a);
+        //     }
+        // });
 
         client.onParcelsSensing( async ( perceived_parcels ) => {
             if(this.config[0].PARCEL_DECADING_INTERVAL != 'infinite'){
@@ -53,6 +54,8 @@ class Beliefs {
                         const par = this.dbParcels.get(p.id);
                         par.observtion_time = now;
                         par.reward = p.reward;
+                        par.x = p.x;
+                        par.y = p.y;
                         this.dbParcels.set(p.id, par);
                     }
                 }
@@ -64,8 +67,6 @@ class Beliefs {
         const myBeliefset = new Beliefset();
 
         if(me_position){
-            let x = ((this.me.x%1 == 0.4) ? parseInt(this.me.x) : ((this.me.x%1 == 0.6) ? parseInt(this.me.x)+1 : parseInt(this.me.x)))
-            let y = ((this.me.y%1 == 0.4) ? parseInt(this.me.y) : ((this.me.y%1 == 0.6) ? parseInt(this.me.y)+1 : parseInt(this.me.y)))
             myBeliefset.declare('on tile' + parseInt(this.me.x) + '_' + parseInt(this.me.y));
         }
             

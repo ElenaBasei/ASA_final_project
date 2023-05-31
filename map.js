@@ -8,6 +8,8 @@ class EnvMap{
     map = new Map()
 
     map_domain_string = [];
+    spawn_tiles = [];
+    delivery_tiles = [];
 
     map_width = 0
     map_height = 0
@@ -30,8 +32,12 @@ class EnvMap{
                 for(const tile of tiles){
                     this.map.get(tile.x).set(tile.y, tile);
                     this.map_domain_string.push('is-tile tile' + tile.x + '_' + tile.y);
-                    if(tile.delivery)
+                    if(tile.delivery){
                         this.map_domain_string.push('is-delivery-tile tile' + tile.x + '_' + tile.y);
+                        this.delivery_tiles.push(tile)
+                    }
+                    if(tile.parcelSpawner)
+                        this.spawn_tiles.push(tile);
                 }
 
                 for (let i=0; i < this.map_width; i++){

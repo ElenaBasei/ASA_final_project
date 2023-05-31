@@ -19,6 +19,7 @@ class Planner {
                 var parcel = beliefs.dbParcels.get(args);
                 parcel.carriedBy = beliefs.me.id;
                 beliefs.dbParcels.set(args, parcel);
+                beliefs.holding.push(parcel);
             }
         );
 
@@ -32,16 +33,11 @@ class Planner {
             async ( args ) => {
                 await client.putdown();
 
-                var carriedParcels = [];
-                for(const p of beliefs.dbParcels){
-                    if(p[1].carriedBy){
-                        carriedParcels.push(p[1])
-                    }
-                }
-
-                for(const p of carriedParcels){
+                for(const p of beliefs.holding){
                     beliefs.dbParcels.delete(p.id)
                 }
+
+                beliefs.holding = [];
             }
         );
 
@@ -164,7 +160,6 @@ class Planner {
         let action = this.getAction(step.action);
         await action.executor(...step.args)
         .catch (error => {
-            console.log('dvbsb', error);
             throw [ error ]
         })        
     }
