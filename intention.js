@@ -53,9 +53,9 @@ class Intention {
 
         // set of consecutive pick-up and single put-down actions
         if(this.predicate.desire == 'go_pick_up'){
-            this.update_order(beliefs.me);
+            console.log('achieving intention', this.predicate);
 
-            var full_plan = [];
+            this.update_order(beliefs.me);
 
             var prev_position = beliefs.me;
             for(var i=0; i<this.predicate.args.length; i++){
@@ -81,7 +81,6 @@ class Intention {
                         return ['plan not found', this.predicate ]
                     }
     
-                    //full_plan = full_plan.concat(plan);
                     var ret = await this.execute_plan(plan, planner)
                     .catch( error => {
                         console.log( 'failed intention', this.predicate, 'with error:', error);
@@ -95,6 +94,8 @@ class Intention {
                 }                
             }
 
+            this.predicate.desire = 'go_put_down';
+
             var myBeliefset = beliefs.generate_beliefs_set(false);
             myBeliefset = map.update_belief_set(myBeliefset);
             myBeliefset.declare('on tile' + prev_position.x + '_' + prev_position.y);
@@ -103,28 +104,13 @@ class Intention {
                 'game_domain',
                 myBeliefset.objects.join(' '),
                 myBeliefset.toPddlString(),
-                'and (exists (?t) (and (on ?t) (is-delivery-tile ?t)))'
+                'and (free)'
             );
 
-            //pddlProblem.saveToFile();
             var plan = await planner.find_plan(pddlProblem)
             .catch( error => {
                 return null;
-            });
-
-            if(!plan){
-                pddlProblem.saveToFile();
-                return ['plan not found', this.predicate ]
-            }
-
-            //full_plan = full_plan.concat(plan);
-            
-            //console.log(plan);
-            var delivery_tile = plan[plan.length-1];
-            delivery_tile = delivery_tile.args[1].replace('tile','');
-            delivery_tile = delivery_tile.split('_')
-
-            plan.push({parallel: false, action: 'put-down', args: ['tile' + delivery_tile[0] + '_' + delivery_tile[1]]})
+            });            
 
             var ret = await this.execute_plan(plan, planner)
             .catch( error => {
@@ -136,6 +122,8 @@ class Intention {
             
         }
         else if(this.predicate.desire == 'go_put_down'){
+            console.log('achieving intention', this.predicate);
+
             var myBeliefset = beliefs.generate_beliefs_set();
             myBeliefset = map.update_belief_set(myBeliefset);
 
@@ -143,7 +131,7 @@ class Intention {
                 'game_domain',
                 myBeliefset.objects.join(' '),
                 myBeliefset.toPddlString(),
-                'and (exists (?t) (and (on ?t) (is-delivery-tile ?t)))'
+                'and (free)'
             );
 
             //pddlProblem.saveToFile();
@@ -151,20 +139,6 @@ class Intention {
             .catch( error => {
                 return null;
             });
-
-            if(!plan){
-                pddlProblem.saveToFile();
-                return ['plan not found', this.predicate ]
-            }
-
-            //full_plan = full_plan.concat(plan);
-            
-            //console.log(plan);
-            var delivery_tile = plan[plan.length-1];
-            delivery_tile = delivery_tile.args[1].replace('tile','');
-            delivery_tile = delivery_tile.split('_')
-
-            plan.push({parallel: false, action: 'put-down', args: ['tile' + delivery_tile[0] + '_' + delivery_tile[1]]})
 
             var ret = await this.execute_plan(plan, planner)
             .catch( error => {
@@ -175,6 +149,8 @@ class Intention {
             return ret;
         }
         else{ //random move when there are no parcels
+            console.log('achieving intention', this.predicate);
+
             var myBeliefset = beliefs.generate_beliefs_set();
             myBeliefset = map.update_belief_set(myBeliefset);
 
@@ -206,7 +182,6 @@ class Intention {
             return ['plan not found', this.predicate ]
         }
 
-        console.log('achieving intention', this.predicate);
         for(const step of plan){
             if ( this.stopped ){
                 console.log('stopped')
@@ -242,8 +217,11 @@ class Intention {
                     var act_step_cost = this.astar_search.search(this.predicate.args[j-1], this.predicate.args[z], this.h);
                 }
 
-                if(best_step_cost > act_step_cost)
+                if(best_step_cost > act_step_cost){
                     best_step = z;
+                    best_step_cost = act_step_cost;
+                }
+                    
             }
 
             var swap = this.predicate.args[j];
@@ -256,6 +234,15 @@ class Intention {
         const dx = Math.abs( Math.round(x1) - Math.round(x2) )
         const dy = Math.abs( Math.round(y1) - Math.round(y2) )
         return dx + dy;
+    }
+
+    deep_copy(){
+        let predicate_copy = {desire: this.predicate.desire, args: []}
+        for(let i=0; i<this.predicate.args.length; i++){
+            predicate_copy.args.push(this.predicate.args[i]);
+        }
+
+        return new Intention(this.parent, predicate_copy);
     }
 
 }

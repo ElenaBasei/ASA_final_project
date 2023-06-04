@@ -33,7 +33,9 @@ await planner.setDomain('./game-domain.pddl');
 
 const agent = new Agent(server_config, beliefs, env_map, planner);
 
-function distance( {x:x1, y:y1}, {x:x2, y:y2}) {
+const astar_search = new AStar(env_map);
+
+function h( {x:x1, y:y1}, {x:x2, y:y2}) {
     const dx = Math.abs( Math.round(x1) - Math.round(x2) )
     const dy = Math.abs( Math.round(y1) - Math.round(y2) )
     return dx + dy;
@@ -61,13 +63,24 @@ client.onParcelsSensing( async (parcels) => {
      * Select best intention
     */
     let best_option;
-    let best_utility = Number.MIN_VALUE;
+    let best_utility = ((server_config[0].PARCEL_DECADING_INTERVAL == 'infinite') ? Number.MAX_VALUE : Number.MIN_VALUE);
+    
     for (const option of options) {
         let current_i = option.desire;
-        let current_d = distance( option.args[0], beliefs.me );
-        if ( option.args[0].reward - current_d > best_utility ) {
-            best_option = option;
-            best_utility = option.args[0].reward - current_d;
+        let current_d = astar_search.search(env_map.map.get(beliefs.me.x).get(beliefs.me.y), option.args[0], h);
+
+        if(server_config[0].PARCEL_DECADING_INTERVAL == 'infinite'){
+            if ( current_d < best_utility ) {
+                best_option = option;
+                best_utility = current_d;
+            }
+        }
+        else{
+            let reward = option.args[0].reward - (current_d*server_config[0].MOVEMENT_DURATION / 1000 / server_config[0].PARCEL_DECADING_INTERVAL)
+            if ( reward > best_utility ) {
+                best_option = option;
+                best_utility = reward;
+            }
         }
     }
 
@@ -87,10 +100,10 @@ client.onParcelsSensing( async (parcels) => {
         if(!status){
             beliefs.dbParcels.delete( best_option.args[0].id);
             agent.revising_queue = false;
-            console.log('uffi')
         }
     }
 })
 
 agent.intentionLoop();
+agent.validity_check();
 

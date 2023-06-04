@@ -29,22 +29,39 @@ class Beliefs {
             this.me.score = score;
         } );
 
-        // client.onAgentsSensing( async (agents) => {
-        //     for (const a of agents) {
-        //         this.dbAgents.set(a.id, a);
-        //     }
-        // });
+        client.onAgentsSensing( async (agents) => {
+            for (const a of agents) {
+                this.dbAgents.set(a.id, a);
+            }
+
+            var remove_agents = [];
+            for (const a of this.dbAgents){
+                if(! agents.map( ag=>ag.id ).includes( a[1].id ) ){
+                    remove_agents.push(a[1]);
+                }
+            }
+
+            for(const a of remove_agents){
+                this.dbAgents.delete(a.id)
+            }
+        });
 
         client.onParcelsSensing( async ( perceived_parcels ) => {
             if(this.config[0].PARCEL_DECADING_INTERVAL != 'infinite'){
                 const now = Date.now();
+
+                var remove_parcels = [];
                 for (const p of this.dbParcels) {
                     var time_diff = parseFloat((now - p[1].observtion_time)/1000);
                     time_diff /= this.config[0].PARCEL_DECADING_INTERVAL;
-                    p[1].reward -= parseInt(time_diff);
-                    p[1].observtion_time = now;
-                    if(p[1].reward <= 0)
-                        this.dbParcels.delete(p.id);
+                    var act_reward = p[1].reward - time_diff;
+                    if(act_reward <= 0)
+                        remove_parcels.push(p[1]);
+                }
+
+                for(const p of remove_parcels){
+                    this.dbParcels.delete(p.id);
+                    this.holding.splice(this.holding.indexOf(p),1);
                 }
 
                 for(const p in perceived_parcels){
@@ -70,7 +87,7 @@ class Beliefs {
             myBeliefset.declare('on tile' + parseInt(this.me.x) + '_' + parseInt(this.me.y));
         }
             
-        var holding = false;
+        var holding_flag = false;
 
         for(const p of this.dbParcels){
             if(!p[1].carriedBy){
@@ -82,11 +99,19 @@ class Beliefs {
                 myBeliefset.declare('holding ' + p[1].id);
                 myBeliefset.declare('is-carried ' + p[1].id);
 
-                holding = true;
+                holding_flag = true;
             }
         }
 
-        if(!holding){
+        for(let i=0; i<this.holding.length; i++){
+            myBeliefset.declare('is-pack ' + this.holding[i].id);
+            myBeliefset.declare('holding ' + this.holding[i].id);
+            myBeliefset.declare('is-carried ' + this.holding[i].id);
+
+            holding_flag = true;
+        }
+
+        if(!holding_flag){
             myBeliefset.declare('free')
         }
 

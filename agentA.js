@@ -34,26 +34,35 @@ class Agent {
             
                 // Current intention
                 this.intention = this.intention_queue[0];
-                
-                //Is queued intention still valid? Do I still want to achieve it?                
-                var intention_to_drop = [];
-                
-                for(const p of this.intention.element.predicate.args){
-                    if(!this.beliefs.dbParcels.has(p.id)){
-                        console.log( 'Skipping intention because no more valid', {desire: 'go_pick_up', args: this.intention.element.predicate} )
-                        intention_to_drop.push(p);
+
+                //check validity of first intention
+                if(this.config[0].PARCEL_DECADING_INTERVAL != 'infinite'){
+                    let distance = this.compute_best_distance(this.intention, this.env_map.map.get(this.beliefs.me.x).get(this.beliefs.me.y));
+
+                    const now = Date.now();
+
+                    for(let i=0; i<this.intention.element.predicate.args.length; i++){
+                        let time_diff = parseFloat((now - this.intention.element.predicate.args[i].observtion_time)/1000);
+                        time_diff /= this.config[0].PARCEL_DECADING_INTERVAL;
+
+                        let reward = parseInt(this.intention.element.predicate.args[i].reward - time_diff - (distance *
+                            this.config[0].MOVEMENT_DURATION / 1000 / this.config[0].PARCEL_DECADING_INTERVAL));
+
+                        if(reward <= 0){
+                            console.log('skipping intention', this.intention.element.predicate.desire, this.intention.element.predicate.args)
+                            this.intention.element.predicate.args.splice(i,1);
+
+                            if(this.intention.element.predicate.args.length == 0){
+                                this.intention_queue.shift();
+                                await new Promise( res => setImmediate( res ) )
+                                    .catch(error => {
+                                        console.log('unknown error', error);
+                                    });
+                                continue;
+                            }
+                            distance = this.compute_best_distance(this.intention, this.env_map.map.get(this.beliefs.me.x).get(this.beliefs.me.y));
+                        }
                     }
-                }
-
-                for(const p of intention_to_drop){
-                    this.intention.element.predicate.args.splice(this.intention.element.predicate.args.indexOf(p),1);
-                }
-                this.intention_queue[0] = this.intention;
-
-                if(this.intention.element.predicate.args.length == 0){
-                    this.intention_queue.shift();
-                    console.log('skip');
-                    continue;
                 }
 
                 this.resume();
@@ -66,7 +75,7 @@ class Agent {
                                             return ['failed intention'];
                                         })
                     console.log(status);
-                    if(status[0] == 'stopped intention'){
+                    if(status[0] == 'stopped intention' || this.intention.element.stopped){
                         stopped = true;
                     }
                     else if(status[0] == 'failed intention' || status[0] == 'plan not found'){
@@ -90,12 +99,7 @@ class Agent {
                         }
                     }
 
-                    if(this.intention == this.intention_queue[0]){
-                        this.intention_queue.shift();
-                    }
-                    else{
-                        this.intention_queue.splice(this.intention_queue.indexOf(this.intention), 1);
-                    }
+                    this.intention_queue.shift();
                 }
                     
             }
@@ -157,7 +161,93 @@ class Agent {
                 }
 
             }
+
             // Postpone next iteration at setImmediate
+            await new Promise( res => setImmediate( res ) )
+            .catch(error => {
+                console.log('unknown error', error);
+            });
+        }
+    }
+
+    async validity_check(){
+        while(true){
+            if (!this.revising_queue) {
+                this.revising_queue = true;
+
+                //check validity of intentions
+                for(let index=0; index<this.intention_queue.length; index++){
+                    var intention = this.intention_queue[index].deep_copy();
+                    var changed = false;
+
+                    if(intention.element.predicate.desire == 'go_pick_up'){
+                        for(let i=0; i<intention.element.predicate.args.length; i++){
+                            var predicate = intention.element.predicate.args[i];
+
+                            if(!this.beliefs.dbParcels.has(predicate.id)){
+                                intention.element.predicate.args.splice(i,1);
+                                i--;
+                                changed = true;
+                            }
+                        }
+
+                        if(intention.element.predicate.args.length == 0){
+                            if(index == 0){
+                                console.log('enter1')
+                                this.stop();
+                            }
+                            this.intention_queue.splice(index, 1);
+                            index--;
+                        }
+                        else if(changed){
+                            if(index == 0){
+                                console.log('enter2')
+                                this.stop();
+                            }
+                            this.intention_queue[index] = intention;
+                        }
+                    }
+                }
+
+                //check order of intentions
+                if(this.config[0].PARCEL_DECADING_INTERVAL != 'infinite' && this.intention_queue.length > 0){
+                    let start = this.env_map.map.get(this.beliefs.me.x).get(this.beliefs.me.y);
+                    let prev_intention = this.intention_queue[0].deep_copy();
+                    var total_distance = this.compute_best_distance(prev_intention, start);
+
+                    for(let i=1; i<this.intention_queue.length; i++){
+                        start = prev_intention.delivery;
+
+                        let intention_copy = this.intention_queue[i].deep_copy();
+                        let best_distance = this.compute_best_distance(intention_copy, start);
+                        let best_utility = this.compute_reward(intention_copy, best_distance + total_distance)[0];
+                        let best_step = i;
+                        let next_intention = intention_copy;
+
+                        for(let j=i+1; j<this.intention_queue.length; j++){
+                            intention_copy = this.intention_queue[j].deep_copy();
+                            let distance = this.compute_best_distance(intention_copy, start);
+                            let act_utility = this.compute_reward(intention_copy, distance + total_distance)[0];
+
+                            if(act_utility > best_utility){
+                                best_step = j;
+                                best_utility = act_utility;
+                                next_intention = intention_copy;
+                                best_distance = distance;
+                            }
+                        }
+
+                        let swap = this.intention_queue[i];
+                        this.intention_queue[i] = this.intention_queue[best_step];
+                        this.intention_queue[best_step] = swap;
+
+                        prev_intention = next_intention;
+                        total_distance += best_distance;
+                    }
+                }
+
+                this.revising_queue = false;
+            }
             await new Promise( res => setImmediate( res ) )
             .catch(error => {
                 console.log('unknown error', error);
@@ -171,11 +261,11 @@ class Agent {
             console.log( 'Revising intention queue. Received', predicate );        
             this.revising_queue = true;
 
-            this.stop();
+            //this.stop();
 
             // intention queue revision is case of random_move as first intention queued
-            if(this.intention != null && (this.intention.element.predicate.desire == 'random_move' || this.intention.element.predicate.desire == 'go_put_down') && predicate){
-
+            if(this.intention == null || ((this.intention != null && this.intention.element.predicate.desire == 'random_move')) && predicate){
+                this.stop();
                 console.log('random')
                 var new_intention = new QElement(new Intention(this,predicate));
 
@@ -186,161 +276,62 @@ class Agent {
                 await new Promise( res => setImmediate( res ) );
                 return true;
             }
-            else if(predicate) { //order intention based on utility function (reward - cost)
-                const total_distance = await this.update_distance()
-                                            .catch( error => {
-                                                console.error('update_distance', error);
-                                                return -1;
-                                            });
-                if(total_distance == -1){
+            else if(predicate && this.intention != null && this.intention.element.predicate.desire != 'go_put_down') { //order intention based on utility function (reward - cost)                
+                let insertion_index=-1;
+                if(this.config[0].PARCEL_DECADING_INTERVAL == 'infinite'){
+                    var best_utility = Number.MAX_VALUE;    
+                }
+                else{
+                    var best_utility = Number.MIN_VALUE;
+                }
+                let act_utility;
+                let new_intention = new QElement(new Intention(this,predicate))
+
+                for(var i=0; i<=this.intention_queue.length; i++){
+
+                    act_utility = this.compute_utility(i, new_intention);
+
+                    if(act_utility != false){
+                        if(this.config[0].PARCEL_DECADING_INTERVAL == 'infinite'){
+                            if(best_utility > act_utility){
+                                best_utility = act_utility;
+                                insertion_index = i;
+                            }
+                        }
+                        else{
+                            if(best_utility < act_utility){
+                                best_utility = act_utility;
+                                insertion_index = i;
+                            }
+                        }
+                    }
+                }
+                
+                if(insertion_index == -1){
                     this.revising_queue = false;
                     await new Promise( res => setImmediate( res ) );
                     return false;
-                }
-                
-                var insertion_index=0;
-                var best_utility;
-                var act_utility;
-                var new_intention = new QElement(new Intention(this,predicate))
-
-                for(var i=0; i<=this.intention_queue.length; i++){
-                    if(i==0 && this.intention_queue.length!=0){
-                        if(this.config[0].PARCEL_DECADING_INTERVAL == 'infinite'){
-                            var new_step_cost = this.astar_search.search(this.intention_queue[i].element.predicate.args[this.intention_queue[i].element.predicate.args.length-1],
-                                predicate.args[0], this.h);
-
-                            if(new_step_cost == -1){
-                                this.revising_queue = false;
-                                await new Promise( res => setImmediate( res ) );
-                                return false;
-                            }
-                            //this.h(this.intention_queue[i].element.predicate.args[this.intention_queue[i].element.predicate.args.length-1], predicate.args[0]);
-
-                            best_utility = total_distance + new_step_cost;
-                        }
-                        else{
-                            var new_step_cost = this.astar_search.search(this.intention_queue[i].element.predicate.args[this.intention_queue[i].element.predicate.args.length-1],
-                                predicate.args[0], this.h);
-
-                            if(new_step_cost == -1){
-                                this.revising_queue = false;
-                                await new Promise( res => setImmediate( res ) );
-                                return false;
-                            }
-                            //this.h(this.intention_queue[i].element.predicate.args[this.intention_queue[i].element.predicate.args.length-1], predicate.args[0]);
-                            var total_reward = this.get_step_reward(i, this.intention_queue[i].cost + new_step_cost);
-
-                            best_utility = total_reward + predicate.args[0].reward - ((new_step_cost) *
-                                this.config[0].MOVEMENT_DURATION / 1000 / this.config[0].PARCEL_DECADING_INTERVAL);
-                        }
-                    }
-                    else if(i==this.intention_queue.length){
-                        if(this.config[0].PARCEL_DECADING_INTERVAL == 'infinite'){
-                            if(i == 0){
-                                var new_step_cost = this.astar_search.search(this.env_map.map.get(this.beliefs.me.x).get(this.beliefs.me.y), predicate.args[0], this.h);
-                            }
-                            else{
-                                var new_step_cost = this.astar_search.search(this.intention_queue[i-1].delivery, predicate.args[0], this.h);
-                            }
-
-                            if(new_step_cost == -1){
-                                this.revising_queue = false;
-                                await new Promise( res => setImmediate( res ) );
-                                return false;
-                            }
-                            //this.h({x: this.intention_queue[i-1].delivery_x, y: this.intention_queue[i-1].delivery_y}, predicate.args[0]);
-                            act_utility = total_distance + new_step_cost + 1
-
-                            if( best_utility > act_utility){
-                                best_utility = act_utility;
-                                insertion_index = i;
-                            }
-                        }
-                        else{
-                            if(i == 0){
-                                var new_step_cost = this.astar_search.search(this.env_map.map.get(this.beliefs.me.x).get(this.beliefs.me.y), predicate.args[0], this.h);
-                            }
-                            else{
-                                var new_step_cost = this.astar_search.search(this.intention_queue[i-1].delivery, predicate.args[0], this.h);
-                            }
-
-                            if(new_step_cost == -1){
-                                this.revising_queue = false;
-                                await new Promise( res => setImmediate( res ) );
-                                return false;
-                            }
-                            //this.h({x: this.intention_queue[i-1].delivery_x, y: this.intention_queue[i-1].delivery_y}, predicate.args[0]);
-                            var total_reward = this.get_step_reward(i, this.intention_queue[i-1].cost + new_step_cost);
-
-                            act_utility = total_reward + predicate.args[0].reward - ((total_distance + new_step_cost) *
-                                this.config[0].MOVEMENT_DURATION / 1000 / this.config[0].PARCEL_DECADING_INTERVAL);
-
-                            if( best_utility < act_utility){
-                                best_utility = act_utility;
-                                insertion_index = i;
-                            }
-                        }
-
-
-                    }
-                    else {
-                        if(this.config[0].PARCEL_DECADING_INTERVAL == 'infinite'){
-                            var new_step_cost = this.astar_search.search(this.intention_queue[i].delivery, predicate.args[0], this.h);
-
-                            if(new_step_cost == -1){
-                                this.revising_queue = false;
-                                await new Promise( res => setImmediate( res ) );
-                                return false;
-                            }
-                            //this.h({x: this.intention_queue[i].delivery_x, y: this.intention_queue[i].delivery_y}, predicate.args[0]);
-                            act_utility = total_distance - this.intention_queue[i].cost + new_step_cost;
-
-                            if( best_utility > act_utility){
-                                best_utility = act_utility;
-                                insertion_index = i;
-                            }
-                        }
-                        else{
-                            var new_step_cost = this.astar_search.search(this.intention_queue[i].delivery, predicate.args[0], this.h);
-
-                            if(new_step_cost == -1){
-                                this.revising_queue = false;
-                                await new Promise( res => setImmediate( res ) );
-                                return false;
-                            }
-                            //this.h({x: this.intention_queue[i-1].delivery_x, y: this.intention_queue[i-1].delivery_y}, predicate.args[0]);
-                            var total_reward = this.get_step_reward(i, this.intention_queue[i].cost + new_step_cost);
-                            var step_cost = 0
-                            for(var j=0; j<i; j++){
-                                step_cost += this.intention_queue[j].cost;
-                            }
-
-                            act_utility = total_reward + predicate.args[0].reward - ((step_cost + new_step_cost) *
-                                this.config[0].MOVEMENT_DURATION / 1000 / this.config[0].PARCEL_DECADING_INTERVAL);
-
-                            if( best_utility < act_utility){
-                                best_utility = act_utility;
-                                insertion_index = i;
-                            }
-                        }
-                    }
                 }
 
                 if(insertion_index == this.intention_queue.length){
                     this.intention_queue.push(new_intention);
                 }
                 else{
+                    // - eventually stop current one
+                    if(insertion_index == 0){
+                        this.stop();
+                    }
                     this.intention_queue[insertion_index].element.predicate.args.push(predicate.args[0]);
-                }
+                }                
+            }
+            else{
+                console.log('Revision finished')
+                this.revising_queue = false;
+                await new Promise( res => setImmediate( res ) );
+                return false;
             }
 
-            // // - eventually stop current one
-            // if(this.intention_queue[0] != first_intention){
-            //     this.stop();
-            // }
-
-            //TODO: check validity
-
+            console.log('Revision finished')
             this.revising_queue = false;
             await new Promise( res => setImmediate( res ) );
             return true;
@@ -374,124 +365,164 @@ class Agent {
         return dx + dy;
     }
 
-    // compute optimal path for every set of pick-up_put-down action
-    async update_distance(){
-        var total_distance = 0
+    compute_utility(step, new_intention){
+        let total_distance = 0;
+        let total_reward = 0;
+        let prev_position = this.env_map.map.get(this.beliefs.me.x).get(this.beliefs.me.y);
 
-        for(var i=0; i<this.intention_queue.length; i++){
-            this.intention_queue[i].cost = 0;
+        for(let i=0; i<=this.intention_queue.length; i++){
+            if(i == step){
+                if(i == this.intention_queue.length){
+                    let distance = this.compute_best_distance(new_intention, prev_position);
 
-            for(var j=0; j<this.intention_queue[i].element.predicate.args.length; j++){
-                if(j == 0){
-                    var best_step_cost = this.astar_search.search(this.env_map.map.get(this.beliefs.me.x).get(this.beliefs.me.y), this.intention_queue[i].element.predicate.args[j], this.h)
+                    if(distance != -1)
+                        total_distance += distance;
+                    else
+                        return false;
+
+                    let reward = this.compute_reward(new_intention, total_distance);
+
+                    if(reward[0] <= 0 || reward[1])
+                        return false;
+
+                    total_reward += reward[0];
                 }
                 else{
-                    var best_step_cost = this.astar_search.search(this.intention_queue[i].element.predicate.args[j-1], this.intention_queue[i].element.predicate.args[j], this.h)    
-                }
+                    let intention_copy = this.intention_queue[i].deep_copy();
+                    intention_copy.element.predicate.args.push(new_intention.element.predicate.args[0]);
+                    let distance = this.compute_best_distance(intention_copy, prev_position)
 
-                if(best_step_cost == -1)
-                        return -1;
+                    if(distance != -1)
+                        total_distance += distance;
+                    else
+                        return false;
 
-                var best_step = j;
-                for(var z=j+1; z<this.intention_queue[i].element.predicate.args.length; z++){
-                    if(j == 0){
-                        var act_step_cost = this.astar_search.search(this.env_map.map.get(this.beliefs.me.x).get(this.beliefs.me.y), this.intention_queue[i].element.predicate.args[z], this.h)
-                    }
-                    else{
-                        var act_step_cost = this.astar_search.search(this.intention_queue[i].element.predicate.args[j-1], this.intention_queue[i].element.predicate.args[z], this.h)
-                    }
+                    let reward = this.compute_reward(intention_copy, total_distance);
 
-                    if(act_step_cost == -1)
-                        return -1;
-
-                    if(best_step_cost > act_step_cost){
-                        best_step = z;
-                        best_step_cost = act_step_cost;
-                    }
-                }
-
-                var swap = this.intention_queue[i].element.predicate.args[j];
-                this.intention_queue[i].element.predicate.args[j] = this.intention_queue[i].element.predicate.args[best_step];
-                this.intention_queue[i].element.predicate.args[best_step] = swap;
-
-                total_distance += best_step_cost +1;
-                this.intention_queue[i].cost += best_step_cost +1;
-            }
-
-            var best_delivery_cost = this.get_best_delivery(i);
-            if(best_delivery_cost == -1)
-                return -1;
-
-            total_distance += best_delivery_cost + 1;
-            this.intention_queue[i].cost += best_delivery_cost + 1;
-        }
-        return total_distance;
-    }
-
-    get_best_delivery(index){
-        var best_step_cost=0;
-        var best_step = 0;
-        for(var j=0; j<this.env_map.delivery_tiles.length; j++){
-            if(j == 0){
-                var best_step_cost = this.astar_search.search(this.intention_queue[index].element.predicate.args[this.intention_queue[index].element.predicate.args.length-1],
-                    this.env_map.delivery_tiles[j], this.h);
-
-                if(best_step_cost == -1)
-                    return -1;     
-                
-                    this.intention_queue[index].delivery = this.env_map.delivery_tiles[j];              
-            }
-            else{
-                var act_step_cost = this.astar_search.search(this.intention_queue[index].element.predicate.args[this.intention_queue[index].element.predicate.args.length-1],
-                    this.env_map.delivery_tiles[j], this.h);
-                if(act_step_cost == -1)
-                    return -1;
-                
-                if(best_step_cost > act_step_cost){
-                    best_step = j;
-                    best_step_cost = act_step_cost;
-                    this.intention_queue[index].delivery = this.env_map.delivery_tiles[j];
-                }
+                    if(reward[0] <= 0 || reward[1])
+                        return false;
                     
+                    total_reward += reward[0];
 
-            }
-        }
-
-        return best_step_cost;
-    }
-
-    // retrive cumulative reward
-    get_step_reward(step, distance){
-        var total_reward = 0;
-        var step_cost = 0;
-
-        for(var i=0; i<this.intention_queue.length; i++){
-            var act_reward = 0;
-
-            if(i != step){
-                step_cost += this.intention_queue[i].cost
-                for(var j=0; j<this.intention_queue[i].element.predicate.args.length; j++){
-                    act_reward += this.intention_queue[i].element.predicate.args[j].reward - 
-                        (step_cost * this.config[0].MOVEMENT_DURATION / 1000 / this.config[0].PARCEL_DECADING_INTERVAL);
+                    prev_position = intention_copy.delivery;
                 }
             }
-            else{
-                step_cost += distance;
+            else if(i != this.intention_queue.length){
+                let intention_copy = this.intention_queue[i].deep_copy();
+                let distance = this.compute_best_distance(intention_copy, prev_position)
 
-                for(var j=0; j<this.intention_queue[i].element.predicate.args.length; j++){
-                    act_reward += this.intention_queue[i].element.predicate.args[j].reward - 
-                        (step_cost * this.config[0].MOVEMENT_DURATION / 1000 / this.config[0].PARCEL_DECADING_INTERVAL);
-                }
+                if(distance != -1)
+                        total_distance += distance;
+                    else
+                        return false;
+
+                total_reward += this.compute_reward(intention_copy, total_distance)[0];
+
+                prev_position = intention_copy.delivery;
             }
-            
-            total_reward += act_reward;
-            this.intention_queue[i].reward = act_reward;
-
         }
 
         return total_reward;
     }
 
+    compute_best_distance(intention, start){
+        let total_distance = 0;
+        let best_step_cost = Number.MAX_VALUE;
+        let best_step = -1;
+
+        for(let i=0; i<intention.element.predicate.args.length; i++){
+            if(i == 0)
+                best_step_cost = this.astar_search.search(start, this.env_map.map.get(intention.element.predicate.args[i].x).get(intention.element.predicate.args[i].y), this.h);
+            else
+                best_step_cost = this.astar_search.search(this.env_map.map.get(intention.element.predicate.args[i-1].x).get(intention.element.predicate.args[i-1].y),
+                    this.env_map.map.get(intention.element.predicate.args[i].x).get(intention.element.predicate.args[i].y), this.h);
+
+            if(best_step_cost == -1)
+                return -1;
+
+            best_step = i;
+            for(var j=i+1; j<intention.element.predicate.args.length; j++){
+                if(i == 0){
+                    var act_step_cost = this.astar_search.search(start, this.env_map.map.get(intention.element.predicate.args[j].x).get(intention.element.predicate.args[j].y), this.h);
+                }
+                else{
+                    var act_step_cost = this.astar_search.search(this.env_map.map.get(intention.element.predicate.args[i-1].x).get(intention.element.predicate.args[i-1].y),
+                        this.env_map.map.get(intention.element.predicate.args[j].x).get(intention.element.predicate.args[j].y), this.h);
+                }
+
+                if(act_step_cost == -1)
+                    return -1;
+
+                if(best_step_cost > act_step_cost){
+                    best_step = j;
+                    best_step_cost = act_step_cost
+                }
+                    
+            }
+
+            total_distance += best_step_cost +1;
+
+            var swap = intention.element.predicate.args[i];
+            intention.element.predicate.args[i] = intention.element.predicate.args[best_step];
+            intention.element.predicate.args[best_step] = swap;
+        }
+
+        let delivery_distance = this.get_best_delivery(intention);
+
+        if(delivery_distance != -1)
+            total_distance += delivery_distance +1;
+        else
+            return -1;
+
+        return total_distance;
+    }
+
+    get_best_delivery(intention){
+        let best_step_cost=Number.MAX_VALUE;
+        let best_step = -1;
+
+        for(var i=0; i<this.env_map.delivery_tiles.length; i++){
+            let act_step_cost = this.astar_search.search(this.env_map.map.get(intention.element.predicate.args[intention.element.predicate.args.length-1].x)
+                .get(intention.element.predicate.args[intention.element.predicate.args.length-1].y),
+                this.env_map.delivery_tiles[i], this.h);
+            
+            if(act_step_cost != -1 && best_step_cost > act_step_cost){
+                best_step = i;
+                best_step_cost = act_step_cost;
+                intention.delivery = this.env_map.delivery_tiles[i];
+            }
+        }
+
+        if(best_step != -1)
+            return best_step_cost;
+        else
+            return -1;
+    }
+
+    compute_reward(intention, distance){
+        if(this.config[0].PARCEL_DECADING_INTERVAL == 'infinite')
+            return [distance, false];
+        else{
+            let total_reward = 0;
+            let zero_flag = false;
+            const now = Date.now();
+
+            for(let i=0; i<intention.element.predicate.args.length; i++){
+                let time_diff = parseFloat((now - intention.element.predicate.args[i].observtion_time)/1000);
+                time_diff /= this.config[0].PARCEL_DECADING_INTERVAL;
+
+                let reward = parseInt(intention.element.predicate.args[i].reward - time_diff - (distance *
+                    this.config[0].MOVEMENT_DURATION / 1000 / this.config[0].PARCEL_DECADING_INTERVAL));
+
+                if(reward > 0)
+                    total_reward += reward;
+                else
+                    zero_flag = true;
+            }
+
+            return [total_reward, zero_flag];
+        }
+    }
 }
 
 class QElement {
@@ -501,6 +532,10 @@ class QElement {
         this.cost = 0;
         this.reward = 0;
         this.delivery = null;
+    }
+
+    deep_copy(){
+        return new QElement(this.element.deep_copy());
     }
 }
 
