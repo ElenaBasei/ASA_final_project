@@ -13,11 +13,11 @@ class Agent {
     revising_queue = false;
     intention = null;
 
-    constructor(config, beliefs, env_map, planner){
+    constructor(config, client, env_map, ally_id){
         this.config = config;
-        this.beliefs = beliefs;
+        this.beliefs = new Beliefs(client, server_config, ally_id, this);
         this.env_map = env_map;
-        this.planner = planner;
+        this.planner = new Planner(client, this.beliefs);
         this.astar_search = new AStar(this.env_map);
     }
 
@@ -26,7 +26,7 @@ class Agent {
             var stopped = false;
             var failed = false;
             var success = false;
-            var achive_trial = 0;
+            var achieve_trial = 0;
             
             // Consumes intention_queue if not empty
             if ( this.intention_queue.length > 0 && !this.revising_queue) {
@@ -67,8 +67,8 @@ class Agent {
 
                 this.resume();
 
-                while(!success && achive_trial<5 && !stopped){
-                    console.log('Try number', achive_trial+1)
+                while(!success && achieve_trial<5 && !stopped){
+                    console.log('Try number', achieve_trial+1)
                     var status = await this.intention.element.achieve(this.planner, this.beliefs, this.env_map)
                                         .catch( error => {
                                             console.error('intention.element.achieve', error);
@@ -80,7 +80,7 @@ class Agent {
                     }
                     else if(status[0] == 'failed intention' || status[0] == 'plan not found'){
                         failed = true;
-                        achive_trial+=1;
+                        achieve_trial+=1;
                         this.intention.element.resume();
                     }
                     else if(status[0] == 'succesful intention'){
@@ -108,18 +108,32 @@ class Agent {
                     let predicate = {desire: 'go_put_down', args: []}
                     this.intention = new QElement(new Intention(this,predicate))
 
-                    // Start achieving intention
-                    var status = await this.intention.element.achieve(this.planner, this.beliefs, this.env_map)
-                                        .catch( error => {
-                                            console.error('intention.element.achieve', error);
-                                            return 'failed intention';
-                                        })
-                    console.log('here',status);
-                    if(status[0] == 'stopped intention'){
-                        stopped = true;
+                    while(!success && achieve_trial<5 && !stopped){
+                        console.log('Try number', achieve_trial+1)
+                        var status = await this.intention.element.achieve(this.planner, this.beliefs, this.env_map)
+                                            .catch( error => {
+                                                console.error('intention.element.achieve', error);
+                                                return ['failed intention'];
+                                            })
+                        console.log(status);
+                        if(status[0] == 'stopped intention' || this.intention.element.stopped){
+                            stopped = true;
+                        }
+                        else if(status[0] == 'failed intention' || status[0] == 'plan not found'){
+                            failed = true;
+                            achieve_trial+=1;
+                            this.intention.element.resume();
+                        }
+                        else if(status[0] == 'succesful intention'){
+                            success = true;
+                        }
+                        else{
+                            throw 'stop';
+                        }
                     }
-                    else if(status[0] == 'failed intention'  || status[0] == 'plan not found'){
-                        failed = true;
+
+                    if(failed){
+                        this.beliefs.holding = [];
                     }
                 }
                 else{
@@ -184,7 +198,7 @@ class Agent {
                         for(let i=0; i<intention.element.predicate.args.length; i++){
                             var predicate = intention.element.predicate.args[i];
 
-                            if(!this.beliefs.dbParcels.has(predicate.id)){
+                            if(!this.beliefs.dbParcels.has(predicate.id) || (predicate.carriedBy != null && predicate.carriedBy != this.beliefs.me.id)){
                                 intention.element.predicate.args.splice(i,1);
                                 i--;
                                 changed = true;
@@ -277,35 +291,8 @@ class Agent {
                 return true;
             }
             else if(predicate && this.intention != null && this.intention.element.predicate.desire != 'go_put_down') { //order intention based on utility function (reward - cost)                
-                let insertion_index=-1;
-                if(this.config[0].PARCEL_DECADING_INTERVAL == 'infinite'){
-                    var best_utility = Number.MAX_VALUE;    
-                }
-                else{
-                    var best_utility = Number.MIN_VALUE;
-                }
-                let act_utility;
-                let new_intention = new QElement(new Intention(this,predicate))
-
-                for(var i=0; i<=this.intention_queue.length; i++){
-
-                    act_utility = this.compute_utility(i, new_intention);
-
-                    if(act_utility != false){
-                        if(this.config[0].PARCEL_DECADING_INTERVAL == 'infinite'){
-                            if(best_utility > act_utility){
-                                best_utility = act_utility;
-                                insertion_index = i;
-                            }
-                        }
-                        else{
-                            if(best_utility < act_utility){
-                                best_utility = act_utility;
-                                insertion_index = i;
-                            }
-                        }
-                    }
-                }
+                
+                let insertion_index = this.find_best_utility(predicate)[0];
                 
                 if(insertion_index == -1){
                     this.revising_queue = false;
@@ -363,6 +350,40 @@ class Agent {
         const dx = Math.abs( Math.round(x1) - Math.round(x2) )
         const dy = Math.abs( Math.round(y1) - Math.round(y2) )
         return dx + dy;
+    }
+
+    find_best_utility(predicate){
+        let insertion_index=-1;
+        if(this.config[0].PARCEL_DECADING_INTERVAL == 'infinite'){
+            var best_utility = Number.MAX_VALUE;    
+        }
+        else{
+            var best_utility = Number.MIN_VALUE;
+        }
+        let act_utility;
+        let new_intention = new QElement(new Intention(this,predicate))
+
+        for(var i=0; i<=this.intention_queue.length; i++){
+
+            act_utility = this.compute_utility(i, new_intention);
+
+            if(act_utility != false){
+                if(this.config[0].PARCEL_DECADING_INTERVAL == 'infinite'){
+                    if(best_utility > act_utility){
+                        best_utility = act_utility;
+                        insertion_index = i;
+                    }
+                }
+                else{
+                    if(best_utility < act_utility){
+                        best_utility = act_utility;
+                        insertion_index = i;
+                    }
+                }
+            }
+        }
+
+        return [insertion_index, best_utility];
     }
 
     compute_utility(step, new_intention){

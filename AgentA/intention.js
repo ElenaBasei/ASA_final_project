@@ -77,7 +77,7 @@ class Intention {
                     });
     
                     if(!plan){
-                        pddlProblem.saveToFile();
+                        //pddlProblem.saveToFile();
                         return ['plan not found', this.predicate ]
                     }
     
