@@ -2,10 +2,12 @@
 import { Intention } from "./intention.js";
 import {PddlProblem} from "@unitn-asa/pddl-client"
 import { AStar } from "./astar.js";
+import { Beliefs } from "./belief_revision.js";
+import { Planner } from "./planner.js";
 
 class Agent {
 
-    #intention_queue = new Array();
+    #intention_queue = [];
     get intention_queue () {
         return this.#intention_queue;
     }
@@ -13,12 +15,13 @@ class Agent {
     revising_queue = false;
     intention = null;
 
-    constructor(config, client, env_map, ally_id){
+    constructor(config, client, beliefs, env_map, planner){
         this.config = config;
-        this.beliefs = new Beliefs(client, server_config, ally_id, this);
         this.env_map = env_map;
-        this.planner = new Planner(client, this.beliefs);
         this.astar_search = new AStar(this.env_map);
+        this.beliefs = beliefs;
+        this.planner = planner;
+        this.client = client;
     }
 
     async intentionLoop ( ) {
@@ -30,7 +33,7 @@ class Agent {
             
             // Consumes intention_queue if not empty
             if ( this.intention_queue.length > 0 && !this.revising_queue) {
-                console.log( 'intention.loop', this.intention_queue.map(i=>i.element.predicate) );
+                console.log( 'Agent', this.beliefs.me.name, 'intention.loop', this.intention_queue.map(i=>i.element.predicate) );
             
                 // Current intention
                 this.intention = this.intention_queue[0];
@@ -49,14 +52,14 @@ class Agent {
                             this.config[0].MOVEMENT_DURATION / 1000 / this.config[0].PARCEL_DECADING_INTERVAL));
 
                         if(reward <= 0){
-                            console.log('skipping intention', this.intention.element.predicate.desire, this.intention.element.predicate.args)
+                            console.log('Agent', this.beliefs.me.name, 'skipping intention', this.intention.element.predicate.desire, this.intention.element.predicate.args)
                             this.intention.element.predicate.args.splice(i,1);
 
                             if(this.intention.element.predicate.args.length == 0){
                                 this.intention_queue.shift();
                                 await new Promise( res => setImmediate( res ) )
                                     .catch(error => {
-                                        console.log('unknown error', error);
+                                        console.log('Agent', this.beliefs.me.name, 'unknown error', error);
                                     });
                                 continue;
                             }
@@ -68,13 +71,13 @@ class Agent {
                 this.resume();
 
                 while(!success && achieve_trial<5 && !stopped){
-                    console.log('Try number', achieve_trial+1)
+                    console.log('Agent', this.beliefs.me.name, 'Try number', achieve_trial+1)
                     var status = await this.intention.element.achieve(this.planner, this.beliefs, this.env_map)
                                         .catch( error => {
-                                            console.error('intention.element.achieve', error);
+                                            console.error('Agent', this.beliefs.me.name, 'intention.element.achieve', error);
                                             return ['failed intention'];
                                         })
-                    console.log(status);
+                    console.log('Agent', this.beliefs.me.name, status);
                     if(status[0] == 'stopped intention' || this.intention.element.stopped){
                         stopped = true;
                     }
@@ -85,6 +88,28 @@ class Agent {
                     }
                     else if(status[0] == 'succesful intention'){
                         success = true;
+                    }
+                    else if(status[0] == 'give intention to ally'){
+                        let predicate = {desire: 'go_pick_up', args: [this.intention.element.predicate.args[status[1]]]}
+
+                        let ret = this.client.ask( this.beliefs.ally.id, {
+                            information_type: 'send_unreachable_parcel',
+                            info: predicate
+                        } );
+
+                        if(ret == false){
+                            this.beliefs.dbParcels.delete(this.intention.element.predicate.args[status[1]].id)
+                        }
+                        else{
+                            let parcel = this.intention.element.predicate.args[status[1]];
+                            parcel.carriedBy = 'ally';
+                            this.beliefs.dbParcels.set(parcel.id, parcel);
+                        }
+                        this.intention.element.predicate.args.splice(status[1],1);
+                        this.intention.element.resume();
+                        if(this.intention.element.predicate.args.length == 0)
+                            success = true;
+
                     }
                     else{
                         throw 'stop';
@@ -105,17 +130,17 @@ class Agent {
             }
             else if(!this.revising_queue){ //random move if the agent do not percive any parcel
                 if(this.beliefs.holding.length != 0){
-                    let predicate = {desire: 'go_put_down', args: []}
+                    let predicate = {desire: 'go_put_down', args: this.beliefs.holding}
                     this.intention = new QElement(new Intention(this,predicate))
 
                     while(!success && achieve_trial<5 && !stopped){
-                        console.log('Try number', achieve_trial+1)
+                        console.log('Agent', this.beliefs.me.name, 'Try number', achieve_trial+1)
                         var status = await this.intention.element.achieve(this.planner, this.beliefs, this.env_map)
                                             .catch( error => {
-                                                console.error('intention.element.achieve', error);
+                                                console.error('Agent', this.beliefs.me.name, 'intention.element.achieve', error);
                                                 return ['failed intention'];
                                             })
-                        console.log(status);
+                        console.log('Agent', this.beliefs.me.name, status);
                         if(status[0] == 'stopped intention' || this.intention.element.stopped){
                             stopped = true;
                         }
@@ -162,10 +187,10 @@ class Agent {
                     // Start achieving intention
                     var status = await this.intention.element.achieve(this.planner, this.beliefs, this.env_map)
                                         .catch( error => {
-                                            console.error('intention.element.achieve', error);
+                                            console.error('Agent', this.beliefs.me.name, 'intention.element.achieve', error);
                                             return 'failed intention';
                                         })
-                    console.log('here',status);
+                    console.log('Agent', this.beliefs.me.name, 'here',status);
                     if(status[0] == 'stopped intention'){
                         stopped = true;
                     }
@@ -179,7 +204,7 @@ class Agent {
             // Postpone next iteration at setImmediate
             await new Promise( res => setImmediate( res ) )
             .catch(error => {
-                console.log('unknown error', error);
+                console.log('Agent', this.beliefs.me.name, 'unknown error', error);
             });
         }
     }
@@ -207,7 +232,7 @@ class Agent {
 
                         if(intention.element.predicate.args.length == 0){
                             if(index == 0){
-                                console.log('enter1')
+                                console.log('here')
                                 this.stop();
                             }
                             this.intention_queue.splice(index, 1);
@@ -215,7 +240,7 @@ class Agent {
                         }
                         else if(changed){
                             if(index == 0){
-                                console.log('enter2')
+                                console.log('here2')
                                 this.stop();
                             }
                             this.intention_queue[index] = intention;
@@ -264,7 +289,7 @@ class Agent {
             }
             await new Promise( res => setImmediate( res ) )
             .catch(error => {
-                console.log('unknown error', error);
+                console.log('Agent', this.beliefs.me.name, 'unknown error', error);
             });
         }
     }
@@ -272,21 +297,28 @@ class Agent {
     // Add new intention
     async push ( predicate ) {
         if(!this.revising_queue){
-            console.log( 'Revising intention queue. Received', predicate );        
+            console.log( 'Agent', this.beliefs.me.name, 'Revising intention queue. Received', predicate );        
             this.revising_queue = true;
-
-            //this.stop();
 
             // intention queue revision is case of random_move as first intention queued
             if(this.intention == null || ((this.intention != null && this.intention.element.predicate.desire == 'random_move')) && predicate){
                 this.stop();
-                console.log('random')
+                console.log('Agent', this.beliefs.me.name, 'random')
                 var new_intention = new QElement(new Intention(this,predicate));
 
                 this.intention_queue.push(new_intention);
 
+                this.beliefs.dbParcels.set( predicate.args[0].id, predicate.args[0]);
+                if(this.beliefs.ally!=null){
+                    await this.client.say( this.beliefs.ally.id, {
+                        information_type: 'confirm_pick_up',
+                        info: predicate,
+                    } );
+                }
+
                 this.revising_queue = false;
                 this.intention = null;
+                
                 await new Promise( res => setImmediate( res ) );
                 return true;
             }
@@ -301,6 +333,7 @@ class Agent {
                 }
 
                 if(insertion_index == this.intention_queue.length){
+                    var new_intention = new QElement(new Intention(this,predicate));
                     this.intention_queue.push(new_intention);
                 }
                 else{
@@ -312,13 +345,21 @@ class Agent {
                 }                
             }
             else{
-                console.log('Revision finished')
+                console.log('Agent', this.beliefs.me.name, 'Revision finished')
                 this.revising_queue = false;
                 await new Promise( res => setImmediate( res ) );
                 return false;
             }
 
-            console.log('Revision finished')
+            this.beliefs.dbParcels.set( predicate.args[0].id, predicate.args[0]);
+            if(this.beliefs.ally!=null){
+                await this.client.say( this.beliefs.ally.id, {
+                    information_type: 'confirm_pick_up',
+                    info: predicate,
+                } );
+            }
+
+            console.log('Agent', this.beliefs.me.name, 'Revision finished')
             this.revising_queue = false;
             await new Promise( res => setImmediate( res ) );
             return true;
@@ -328,17 +369,44 @@ class Agent {
         }
     }
 
-    async stop ( ) {
-        console.log( 'stop agent queued intentions');
-        if (this.intention)
-            this.intention.element.stop();
-        for (const intention of this.intention_queue) {
-            intention.element.stop();
+    async stop ( motive = null) {
+        if(motive == null){
+            console.log( 'Agent', this.beliefs.me.name, 'stop agent queued intentions');
+            if (this.intention)
+                this.intention.element.stop();
+            for (const intention of this.intention_queue) {
+                intention.element.stop();
+            }
+        }
+        else{
+            console.log( 'Agent', this.beliefs.me.name, 'stop agent queued intentions');
+            if (this.intention != null){
+                if(this.intention.predicate.desire != 'go_put_down')
+                    this.intention.element.stop();
+            }
+                
+            for (const intention of this.intention_queue) {
+                if(this.intention.predicate.desire != 'go_put_down')
+                    intention.element.stop();
+            }
+
+            this.revising_queue = true;
+            predicate = false;
+            while(predicate == false){
+                predicate = await this.client.ask( this.beliefs.ally.id, {
+                    information_type: 'new_pick_up'
+                } );
+            }
+
+            this.intention_queue.unshift(new QElement(new Intention(this,predicate)));
+            this.beliefs.dbParcels.set(predicate.args[0].id, predicate.args[0]);
+
+            this.revising_queue = false;
         }
     }
 
     async resume ( ) {
-        console.log( 'resume agent queued intentions');
+        console.log( 'Agent', this.beliefs.me.name, 'resume agent queued intentions');
         if (this.intention)
             this.intention.element.resume();
         for (const intention of this.intention_queue) {
@@ -354,16 +422,18 @@ class Agent {
 
     find_best_utility(predicate){
         let insertion_index=-1;
+
         if(this.config[0].PARCEL_DECADING_INTERVAL == 'infinite'){
             var best_utility = Number.MAX_VALUE;    
         }
         else{
             var best_utility = Number.MIN_VALUE;
         }
+
         let act_utility;
         let new_intention = new QElement(new Intention(this,predicate))
 
-        for(var i=0; i<=this.intention_queue.length; i++){
+        for(var i=1; i<=this.intention_queue.length; i++){
 
             act_utility = this.compute_utility(i, new_intention);
 
@@ -391,7 +461,7 @@ class Agent {
         let total_reward = 0;
         let prev_position = this.env_map.map.get(this.beliefs.me.x).get(this.beliefs.me.y);
 
-        for(let i=0; i<=this.intention_queue.length; i++){
+        for(let i=1; i<=this.intention_queue.length; i++){
             if(i == step){
                 if(i == this.intention_queue.length){
                     let distance = this.compute_best_distance(new_intention, prev_position);

@@ -1,12 +1,14 @@
 //Belief revision functions
 import {Beliefset} from "@unitn-asa/pddl-client"
+import { AStar } from "./astar.js";
 
 
 class Beliefs {
 
-    config = {}
+    config = {};
     me = {};
     holding = [];
+    act_path = [];
 
     /**
      * @type {Map{id:string, name:string, x:number, y:number, score:number}}
@@ -18,32 +20,44 @@ class Beliefs {
     */
     dbParcels = new Map();
 
-    constructor ( client , config, ally_id, agent) {
+    constructor ( client , config) {
         this.config = config;
+        this.ally = null;
+        this.client = client;
 
-        client.onYou( async ( {id, name, x, y, score} ) => {
+
+        this.client.onYou(( {id, name, x, y, score} ) => {
             this.me.id = id;
             this.me.name = name;
             this.me.x = ((x%1 == 0.4) ? parseInt(x) : ((x%1 == 0.6) ? parseInt(x)+1 : parseInt(x)));
             this.me.y = ((y%1 == 0.4) ? parseInt(y) : ((y%1 == 0.6) ? parseInt(y)+1 : parseInt(y)))
             this.me.score = score;
 
-            await client.say( ally_id, {
-                information_type: 'me_info',
-                info: this.me
-            } );
+            if(this.ally == null){
+                this.client.shout( {
+                    information_type: 'establish_alliance',
+                    info: this.me
+                } );
+            }
+            else{
+                this.client.say( this.ally.id, {
+                    information_type: 'ally_info',
+                    info: this.me
+                } );
+            }
         } );
 
-        client.onAgentsSensing( async (agents) => {
+        this.client.onAgentsSensing( async (agents) => {
             for (const a of agents) {
                 this.dbAgents.set(a.id, a);
             }
 
-            await client.say( ally_id, {
-                information_type: 'agents_info',
-                info: agents
-            } );
-            
+            if(this.ally != null){
+                await this.client.say( this.ally.id, {
+                    information_type: 'agents_info',
+                    info: agents
+                } );
+            }
 
             var remove_agents = [];
             for (const a of this.dbAgents){
@@ -56,9 +70,13 @@ class Beliefs {
                 this.dbAgents.delete(a.id)
             }
 
+            //keep ally info only in this.ally
+            if(this.ally != null)
+                this.dbAgents.delete(this.ally.id)
+
         });
 
-        client.onParcelsSensing( async ( perceived_parcels ) => {
+        this.client.onParcelsSensing( async ( perceived_parcels ) => {
             if(this.config[0].PARCEL_DECADING_INTERVAL != 'infinite'){
                 const now = Date.now();
 
@@ -77,7 +95,7 @@ class Beliefs {
                 }
 
                 for(const p in perceived_parcels){
-                    if(this.dbParcels.has(p.id) && p.carriedBy != null && p.carriedBy != this.me.id)
+                    if(this.dbParcels.has(p.id) && p.carriedBy != null && (p.carriedBy != this.me.id || (this.ally != null && p.carriedBy != this.ally.id)))
                         this.dbParcels.delete(p.id);
                     else if ( this.dbParcels.has(p.id) ) {
                         const par = this.dbParcels.get(p.id);
@@ -89,141 +107,178 @@ class Beliefs {
                     }
                 }
             }
-
-            /**
-             * Options generation
-            */
-            const options = [];
-            const now = Date.now();
-
-            for(const p of perceived_parcels){
-                if ( ! this.dbParcels.has(p.id) && !p.carriedBy) {
-                    var p_time = {
-                        ...p,
-                        'observtion_time' : now
-                    };
-                    options.push( { desire: 'go_pick_up', args: [p_time] } );
-                }
-            }
-
-            /**
-             * Select best intention
-            */
-            let best_option;
-            let best_utility = ((config[0].PARCEL_DECADING_INTERVAL == 'infinite') ? Number.MAX_VALUE : Number.MIN_VALUE);
             
-            for (const option of options) {
-                let current_i = option.desire;
-                let current_d = astar_search.search(env_map.map.get(this.me.x).get(this.me.y), option.args[0], h);
-
-                if(config[0].PARCEL_DECADING_INTERVAL == 'infinite'){
-                    if ( current_d < best_utility ) {
-                        best_option = option;
-                        best_utility = current_d;
-                    }
-                }
-                else{
-                    let reward = option.args[0].reward - (current_d*config[0].MOVEMENT_DURATION / 1000 / config[0].PARCEL_DECADING_INTERVAL)
-                    if ( reward > best_utility ) {
-                        best_option = option;
-                        best_utility = reward;
-                    }
-                }
-            }
-
-            /**
-             * Revise/queue intention 
-            */
-            if(best_option){
-                let best_utility = agent.find_best_utility(best_option)[1];
-                let reply = await client.ask( ally_id, {
-                    information_type: 'parcel_pick_up',
-                    info: predicate,
-                    utility: best_utility
-                } );
-
-                if(!reply){
-                    this.dbParcels.set( best_option.args[0].id, best_option.args[0]);
-                    var status = await agent.push( best_option )
-                    .catch( error => {
-                        console.error('push', error);
-                        this.dbParcels.delete( best_option.args[0].id);
-                        agent.revising_queue = false;
-                        return false;
-                    });
-    
-                    if(!status){
-                        this.dbParcels.delete( best_option.args[0].id);
-                        agent.revising_queue = false;
-                    }
-                }
-            }
         });
+    }
 
-        client.onMsg( async (id, name, msg, reply) => {
+    define_on_message(agent){
+        //manage incoming messages
+        this.client.onMsg( async (id, name, msg, reply) => {
             switch(msg.information_type){
+                //update other agents info
                 case 'agents_info':
-                    agents = msg.info;
+                    //console.log('Agent', this.me.name, 'received agents info', msg.info)
+                    var agents = msg.info;
 
                     for (const a of agents) {
                         this.dbAgents.set(a.id, a);
-                    }                    
-        
-                    var remove_agents = [];
-                    for (const a of this.dbAgents){
-                        if(! agents.map( ag=>ag.id ).includes( a[1].id ) ){
-                            remove_agents.push(a[1]);
-                        }
                     }
-        
-                    for(const a of remove_agents){
-                        this.dbAgents.delete(a.id)
-                    }
+
+                    //remove possible info of this agent incoming from the ally
+                    this.dbAgents.delete(this.me.id)
                     break;
 
+                //parcel pick up check
                 case 'parcel_pick_up':
+                    //console.log('Agent', this.me.name, 'received parcel info', msg.info)
                     let best_utility = agent.find_best_utility(msg.info)[1];
 
+                    var parcel = {
+                        id:msg.info.args[0].id, 
+                        x:msg.info.args[0].x, 
+                        y:msg.info.args[0].y, 
+                        carriedBy:null, 
+                        reward:msg.info.args[0].reward, 
+                        observtion_time:msg.info.args[0].observtion_time
+                    }
                     
-                    if(config[0].PARCEL_DECADING_INTERVAL == 'infinite'){
-                        var choice_condition = ((best_utility > msg.utility) ? true : false);
+                    if(this.config[0].PARCEL_DECADING_INTERVAL == 'infinite'){
+                        var choice_condition = ((best_utility < msg.utility) ? true : false);
                     }
                     else{
-                        var choice_condition = ((best_utility > msg.utility) ? false : true);
+                        var choice_condition = ((best_utility > msg.utility) ? true : false);
                     }
 
+                    agent.revising_queue = true;
                     if(choice_condition){
-                        reply(true)
-
-                        this.dbParcels.set( best_option.args[0].id, best_option.args[0]);
-                        var status = false;
-
-                        while(!status){
-                            status = await agent.push( best_option )
-                            .catch( error => {
-                                console.error('push', error);
-                                this.dbParcels.delete( best_option.args[0].id);
-                                agent.revising_queue = false;
-                                return false;
-                            });
-            
-                            if(!status){
-                                this.dbParcels.delete( best_option.args[0].id);
-                                agent.revising_queue = false;
-                            }
+                        var status = await agent.push( {desire: 'go_pick_up', args: [parcel]} )
+                        .catch( error => {
+                            console.log('push', error);
+                            //this.dbParcels.delete( msg.info.args[0].id);
+                            agent.revising_queue = false;
+                            return false;
+                        });
+        
+                        if(!status){
+                            //this.dbParcels.delete( msg.info.args[0].id);
+                            agent.revising_queue = false;
+                            parcel.carriedBy='ally';
+                            this.dbParcels.set( parcel.id, parcel);
+                            reply(false)
+                        }
+                        else{
+                            agent.revising_queue = false;
+                            reply(true)
                         }
                         
                     }
                     else{
+                        agent.revising_queue = false;
+                        parcel.carriedBy = 'ally'
+                        this.dbParcels.set( parcel.id, parcel);
                         reply(false)
                     }
 
                     break;
 
+                //communicate to the ally the intention of picking up a parcel
+                case 'confirmed_pick_up':
+                    var parcel = {
+                        id:msg.info.args[0].id, 
+                        x:msg.info.args[0].x, 
+                        y:msg.info.args[0].y, 
+                        carriedBy:'ally', 
+                        reward:msg.info.args[0].reward, 
+                        observtion_time:msg.info.args[0].observtion_time
+                    }
+                    this.dbParcels.set( parcel.id, parcel);
+                    break;
+
+                case 'drop_ally_intention':
+                    this.dbParcels.delete(msg.info.id)
+                    break;
+
+                //update ally info
                 case 'ally_info':
+                    this.ally = msg.info;
+                    //console.log('Agent', this.me.name, 'received ally information', this.ally);
+                    break;
+
+                //receive new ally information
+                case 'establish_alliance':
+                    this.ally = msg.info;
+                    //console.log('Agent', this.me.name, 'received ally information', this.ally);
+                    break;
+
+                //ally current intention
+                case 'stop_for_pick_up':
+                    //console.log('Agent', this.me.name, 'received stop for new pick-up')
+                    agent.stop('new_pick_up');
+                    break;
+
+                case 'new_pick_up':
+                    //console.log('Agent', this.me.name, 'received new pick-up')
+                    if(agent.intention_queue[0].element.new_predicate != null){
+                        reply(agent.intention_queue[0].element.new_predicate)
+                    }
+                    else{
+                        reply(false);
+                    }
+                    break;
+
+                case 'send_unreachable_parcel':
+                    //console.log('Agent', this.me.name, 'received new parcel to pick-up')
+
+                    var parcel = {
+                        id:msg.info.args[0].id, 
+                        x:msg.info.args[0].x, 
+                        y:msg.info.args[0].y, 
+                        carriedBy:null, 
+                        reward:msg.info.args[0].reward, 
+                        observtion_time:msg.info.args[0].observtion_time
+                    }
+
+                    agent.revising_queue = true;
+                    var status = await agent.push( {desire: 'go_pick_up', args: [parcel]} )
+                    .catch( error => {
+                        console.log('push', error);
+                        //this.dbParcels.delete( msg.info.args[0].id);
+                        agent.revising_queue = false;
+                        return false;
+                    });
+    
+                    if(!status){
+                        //this.dbParcels.delete( msg.info.args[0].id);
+                        agent.revising_queue = false;
+                    }
+                    else{
+                        agent.revising_queue = false;
+                    }
+
+                    reply(status);
+                    break;
+
+                case 'delivery':
+                    this.dbParcels.delete(msg.info)
+                    break;
+
+                default:
                     break;
             }
         });
+    }
+
+    async communicate_stop_for_pick_up(){
+        await this.client.say( this.ally.id, {
+            information_type: 'stop_for_pick_up'
+        } );
+    }
+
+    async communicate_delivery(id){
+        await this.client.say( this.ally.id, {
+            information_type: 'delivery',
+            info: id
+        } );
     }
 
     generate_beliefs_set(me_position=true){
@@ -270,7 +325,7 @@ class Beliefs {
         return myBeliefset;
     }
 
-    distance( {x:x1, y:y1}, {x:x2, y:y2}) {
+    h( {x:x1, y:y1}, {x:x2, y:y2}) {
         const dx = Math.abs( Math.round(x1) - Math.round(x2) )
         const dy = Math.abs( Math.round(y1) - Math.round(y2) )
         return dx + dy;

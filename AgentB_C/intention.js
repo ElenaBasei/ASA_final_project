@@ -50,10 +50,12 @@ class Intention {
 
         this.astar_search = new AStar(map)
         this.env_map=map;
+        this.new_predicate = null;
+        var parcel = null;
 
         // set of consecutive pick-up and single put-down actions
         if(this.predicate.desire == 'go_pick_up'){
-            console.log('achieving intention', this.predicate);
+            console.log('Agent', beliefs.me.name, 'achieving intention', this.predicate);
 
             this.update_order(beliefs.me);
 
@@ -62,7 +64,10 @@ class Intention {
                 if(beliefs.dbParcels.get(this.predicate.args[i].id).carriedBy == null){
                     var myBeliefset = beliefs.generate_beliefs_set(false);
                     myBeliefset = map.update_belief_set(myBeliefset);
-                    myBeliefset.declare('on tile' + prev_position.x + '_' + prev_position.y);                    
+                    myBeliefset.declare('on tile' + prev_position.x + '_' + prev_position.y);
+                    if(beliefs.ally != null){
+                        myBeliefset.declare('obstacle tile' + beliefs.ally.x + '_' + beliefs.ally.y);
+                    }                    
     
                     var pddlProblem = new PddlProblem(
                         'game_domain',
@@ -76,14 +81,36 @@ class Intention {
                         return null;
                     });
     
-                    if(!plan){
-                        //pddlProblem.saveToFile();
+                    if(!plan && beliefs.ally != null){
+                        var myBeliefset = beliefs.generate_beliefs_set(false);
+                        myBeliefset = map.update_belief_set(myBeliefset);
+                        myBeliefset.declare('on tile' + prev_position.x + '_' + prev_position.y);             
+        
+                        var pddlProblem = new PddlProblem(
+                            'game_domain',
+                            myBeliefset.objects.join(' '),
+                            myBeliefset.toPddlString(),
+                            'and (holding ' + this.predicate.args[i].id + ')'
+                        );
+        
+                        var plan = await planner.find_plan(pddlProblem)
+                        .catch( error => {
+                            return null;
+                        });
+
+                        if(!plan)
+                            return ['plan not found', this.predicate ]
+                        else{
+                            return ['give intention to ally', i]
+                        }
+                    }
+                    else if(!plan){
                         return ['plan not found', this.predicate ]
                     }
-    
+
                     var ret = await this.execute_plan(plan, planner)
                     .catch( error => {
-                        console.log( 'failed intention', this.predicate, 'with error:', error);
+                        console.log( 'Agent', beliefs.me.name, 'failed intention', this.predicate, 'with error:', error);
                         return [ 'failed intention', this.predicate ];
                     });
 
@@ -99,6 +126,9 @@ class Intention {
             var myBeliefset = beliefs.generate_beliefs_set(false);
             myBeliefset = map.update_belief_set(myBeliefset);
             myBeliefset.declare('on tile' + prev_position.x + '_' + prev_position.y);
+            if(beliefs.ally != null){
+                myBeliefset.declare('obstacle tile' + beliefs.ally.x + '_' + beliefs.ally.y);
+            }  
 
             var pddlProblem = new PddlProblem(
                 'game_domain',
@@ -110,22 +140,86 @@ class Intention {
             var plan = await planner.find_plan(pddlProblem)
             .catch( error => {
                 return null;
-            });            
+            });  
+            
+            if(!plan && beliefs.ally != null){
+                var myBeliefset = beliefs.generate_beliefs_set(false);
+                myBeliefset = map.update_belief_set(myBeliefset);
+                myBeliefset.declare('on tile' + prev_position.x + '_' + prev_position.y);
+
+                var pddlProblem = new PddlProblem(
+                    'game_domain',
+                    myBeliefset.objects.join(' '),
+                    myBeliefset.toPddlString(),
+                    'and (free)'
+                );
+
+                var plan = await planner.find_plan(pddlProblem)
+                .catch( error => {
+                    return null;
+                });
+
+                if(!plan){
+                    return ['plan not found', this.predicate ]
+                }
+                else{
+                    beliefs.communicate_stop_for_pick_up();
+
+                    var pddlProblem = new PddlProblem(
+                        'game_domain',
+                        myBeliefset.objects.join(' '),
+                        myBeliefset.toPddlString(),
+                        'and (exist (?t) (and (on ?t) (or (is-up ?t tile' + beliefs.ally.x + '_' + beliefs.ally.y +') ' + 
+                        '(is-right ?t tile' + beliefs.ally.x + '_' + beliefs.ally.y +') ' + 
+                        '(is-down ?t tile' + beliefs.ally.x + '_' + beliefs.ally.y +') ' + 
+                        '(is-left t tile' + beliefs.ally.x + '_' + beliefs.ally.y +'))))'
+                    );
+    
+                    var plan = await planner.find_plan(pddlProblem)
+                    .catch( error => {
+                        return null;
+                    });
+
+                    delivery_tile = plan[plan.length-1];
+                    delivery_tile = delivery_tile.args[1];
+                    delivery_tile = delivery_tile.replace('tile','')
+                    delivery_tile = delivery_tile.split('_')
+
+                    plan.push('(put_down tile' + delivery_tile[0] + '_' + delivery_tile[1] + ')')
+
+                    var parcel = {
+                        id:this.predicate.args[0].id, 
+                        x:parseInt(delivery_tile[0]), 
+                        y:parseInt(delivery_tile[1]), 
+                        carriedBy:null, 
+                        reward:this.predicate.args[0].reward, 
+                        observtion_time:this.predicate.args[0].observtion_time
+                    }
+                }
+            }
+            else if(!plan){
+                return ['plan not found', this.predicate ]
+            }
 
             var ret = await this.execute_plan(plan, planner)
             .catch( error => {
-                console.log( 'failed intention', this.predicate, 'with error:', error);
+                console.log( 'Agent', beliefs.me.name, 'failed intention', this.predicate, 'with error:', error);
                 return [ 'failed intention', this.predicate ];
             });
+
+            this.new_predicate = {desire : 'go_pick_up', args : [parcel]};
 
             return ret;
             
         }
         else if(this.predicate.desire == 'go_put_down'){
-            console.log('achieving intention', this.predicate);
+            console.log('Agent', beliefs.me.name, 'achieving intention', this.predicate);
 
             var myBeliefset = beliefs.generate_beliefs_set();
             myBeliefset = map.update_belief_set(myBeliefset);
+            if(beliefs.ally != null){
+                myBeliefset.declare('obstacle tile' + beliefs.ally.x + '_' + beliefs.ally.y);
+            } 
 
             var pddlProblem = new PddlProblem(
                 'game_domain',
@@ -140,16 +234,76 @@ class Intention {
                 return null;
             });
 
+            if(!plan && beliefs.ally != null){
+                var myBeliefset = beliefs.generate_beliefs_set();
+                myBeliefset = map.update_belief_set(myBeliefset);
+
+                var pddlProblem = new PddlProblem(
+                    'game_domain',
+                    myBeliefset.objects.join(' '),
+                    myBeliefset.toPddlString(),
+                    'and (free)'
+                );
+
+                var plan = await planner.find_plan(pddlProblem)
+                .catch( error => {
+                    return null;
+                });
+
+                if(!plan){
+                    return ['plan not found', this.predicate ]
+                }
+                else{
+                    beliefs.communicate_stop_for_pick_up();
+                    
+                    var pddlProblem = new PddlProblem(
+                        'game_domain',
+                        myBeliefset.objects.join(' '),
+                        myBeliefset.toPddlString(),
+                        'and (exist (?t) (and (on ?t) (or (is-up ?t tile' + beliefs.ally.x + '_' + beliefs.ally.y +') ' + 
+                        '(is-right ?t tile' + beliefs.ally.x + '_' + beliefs.ally.y +') ' + 
+                        '(is-down ?t tile' + beliefs.ally.x + '_' + beliefs.ally.y +') ' + 
+                        '(is-left t tile' + beliefs.ally.x + '_' + beliefs.ally.y +'))))'
+                    );
+    
+                    var plan = await planner.find_plan(pddlProblem)
+                    .catch( error => {
+                        return null;
+                    });
+
+                    delivery_tile = plan[plan.length-1];
+                    delivery_tile = delivery_tile.args[1];
+                    delivery_tile = delivery_tile.replace('tile','')
+                    delivery_tile = delivery_tile.split('_')
+
+                    plan.push('(put_down tile' + delivery_tile[0] + '_' + delivery_tile[1] + ')')
+
+                    parcel = {
+                        id:this.predicate.args[0].id, 
+                        x:parseInt(delivery_tile[0]), 
+                        y:parseInt(delivery_tile[1]), 
+                        carriedBy:null, 
+                        reward:this.predicate.args[0].reward, 
+                        observtion_time:this.predicate.args[0].observtion_time
+                    }
+                }
+            }
+            else if(!plan){
+                return ['plan not found', this.predicate ]
+            }
+
             var ret = await this.execute_plan(plan, planner)
             .catch( error => {
-                console.log( 'failed intention', this.predicate, 'with error:', error);
+                console.log( 'Agent', beliefs.me.name, 'failed intention', this.predicate, 'with error:', error);
                 return [ 'failed intention', this.predicate ];
             });
+
+            this.new_predicate = {desire : 'go_pick_up', args : [parcel]};
 
             return ret;
         }
         else{ //random move when there are no parcels
-            console.log('achieving intention', this.predicate);
+            console.log('Agent', beliefs.me.name, 'achieving intention', this.predicate);
 
             var myBeliefset = beliefs.generate_beliefs_set();
             myBeliefset = map.update_belief_set(myBeliefset);
@@ -161,6 +315,7 @@ class Intention {
                 'and  (on tile' + this.predicate.args[0].x + '_' + this.predicate.args[0].y + ')'
             );
 
+            pddlProblem.saveToFile()
             var plan = await planner.find_plan(pddlProblem)
             .catch( error => {
                 return null;
@@ -168,7 +323,7 @@ class Intention {
 
             var ret = await this.execute_plan(plan, planner)
             .catch( error => {
-                console.log( 'failed intention', this.predicate, 'with error:', error);
+                console.log( 'Agent', beliefs.me.name, 'failed intention', this.predicate, 'with error:', error);
                 return [ 'failed intention', this.predicate ];
             });
 

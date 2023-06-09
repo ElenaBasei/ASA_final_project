@@ -14,12 +14,17 @@ class Planner {
             'and (is-tile ?t) (is-pack ?p) (not (is-carried ?p)) (on ?t) (pack-in ?p ?t)',
             'and (holding ?p) (is-carried ?p) (not (pack-in ?p ?t)) (not (free))',
             async ( args ) => {
-                await client.pickup();
-                
-                var parcel = beliefs.dbParcels.get(args);
-                parcel.carriedBy = beliefs.me.id;
-                beliefs.dbParcels.set(args, parcel);
-                beliefs.holding.push(parcel);
+                let parcels = await client.pickup();
+
+                for(let i=0; i<parcels.length; i++){
+                    let p = parcels[i]
+                    var parcel = beliefs.dbParcels.get(p.id);
+                    parcel.carriedBy = beliefs.me.id;
+                    beliefs.dbParcels.set(args, parcel);
+                    beliefs.holding.push(parcel);
+
+                    beliefs.communicate_delivery(p.id);
+                }   
             }
         );
 
@@ -122,8 +127,6 @@ class Planner {
         );
         
         this.actions[action.name.toLowerCase()] = action;
-        
-        this.setDomain('./game-domain.pddl');
     }
 
     getAction (name) {
@@ -162,7 +165,7 @@ class Planner {
 
     async setDomain ( path ) {
     
-        await new Promise( (res, rej) => {
+        return new Promise( (res, rej) => {
 
             fs.readFile( path, 'utf8', (err, data) => {
                 if (err) rej(err);
