@@ -126,6 +126,8 @@ class Agent {
 
                     this.intention_queue.shift();
                 }
+
+                console.log("int" + this.intention.element)
                     
             }
             else if(!this.revising_queue){ //random move if the agent do not percive any parcel
@@ -254,7 +256,10 @@ class Agent {
                     let prev_intention = this.intention_queue[0].deep_copy();
                     var total_distance = this.compute_best_distance(prev_intention, start);
 
+                    //console.log("intention queue" + this.intention_queue.length)
+
                     for(let i=1; i<this.intention_queue.length; i++){
+                        console.log(this.intention_queue[i])
                         start = prev_intention.delivery;
 
                         let intention_copy = this.intention_queue[i].deep_copy();
@@ -305,20 +310,21 @@ class Agent {
                 this.stop();
                 console.log('Agent', this.beliefs.me.name, 'random')
                 var new_intention = new QElement(new Intention(this,predicate));
+                var best_distance = this.compute_best_distance(new_intention.deep_copy(), this.env_map.map.get(this.beliefs.me.x).get(this.beliefs.me.y));
 
-                this.intention_queue.push(new_intention);
+                if(best_distance != -1){
+                    this.intention_queue.push(new_intention);
 
-                this.beliefs.dbParcels.set( predicate.args[0].id, predicate.args[0]);
-                if(this.beliefs.ally!=null){
-                    await this.client.say( this.beliefs.ally.id, {
-                        information_type: 'confirm_pick_up',
-                        info: predicate,
-                    } );
+                    this.beliefs.dbParcels.set( predicate.args[0].id, predicate.args[0]);
+                    if(this.beliefs.ally!=null){
+                        await this.client.say( this.beliefs.ally.id, {
+                            information_type: 'confirm_pick_up',
+                            info: predicate,
+                        } );
+                    }  
                 }
-
                 this.revising_queue = false;
-                this.intention = null;
-                
+                //this.intention = null;
                 await new Promise( res => setImmediate( res ) );
                 return true;
             }
@@ -381,25 +387,29 @@ class Agent {
         else{
             console.log( 'Agent', this.beliefs.me.name, 'stop agent queued intentions');
             if (this.intention != null){
-                if(this.intention.predicate.desire != 'go_put_down')
+                if(this.intention.element.predicate.desire != 'go_put_down')
                     this.intention.element.stop();
             }
                 
             for (const intention of this.intention_queue) {
-                if(this.intention.predicate.desire != 'go_put_down')
+                if(this.intention.element.predicate.desire != 'go_put_down')
                     intention.element.stop();
             }
 
             this.revising_queue = true;
-            predicate = false;
+            var predicate = false;
             while(predicate == false){
                 predicate = await this.client.ask( this.beliefs.ally.id, {
                     information_type: 'new_pick_up'
                 } );
             }
 
+            console.log(predicate)
+
             this.intention_queue.unshift(new QElement(new Intention(this,predicate)));
             this.beliefs.dbParcels.set(predicate.args[0].id, predicate.args[0]);
+
+            console.log("predicate" + this.intention_queue[0].element.predicate)
 
             this.revising_queue = false;
         }

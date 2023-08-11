@@ -108,7 +108,7 @@ class Intention {
                         return ['plan not found', this.predicate ]
                     }
 
-                    var ret = await this.execute_plan(plan, planner)
+                    var ret = await this.execute_plan(plan, planner, beliefs)
                     .catch( error => {
                         console.log( 'Agent', beliefs.me.name, 'failed intention', this.predicate, 'with error:', error);
                         return [ 'failed intention', this.predicate ];
@@ -126,6 +126,7 @@ class Intention {
             var myBeliefset = beliefs.generate_beliefs_set(false);
             myBeliefset = map.update_belief_set(myBeliefset);
             myBeliefset.declare('on tile' + prev_position.x + '_' + prev_position.y);
+            console.log(beliefs.ally)
             if(beliefs.ally != null){
                 myBeliefset.declare('obstacle tile' + beliefs.ally.x + '_' + beliefs.ally.y);
             }  
@@ -169,23 +170,36 @@ class Intention {
                         'game_domain',
                         myBeliefset.objects.join(' '),
                         myBeliefset.toPddlString(),
-                        'and (exist (?t) (and (on ?t) (or (is-up ?t tile' + beliefs.ally.x + '_' + beliefs.ally.y +') ' + 
+                        'and (exists (?t) (and (is-tile ?t) (on ?t) (or (is-up ?t tile' + beliefs.ally.x + '_' + beliefs.ally.y +') ' + 
                         '(is-right ?t tile' + beliefs.ally.x + '_' + beliefs.ally.y +') ' + 
                         '(is-down ?t tile' + beliefs.ally.x + '_' + beliefs.ally.y +') ' + 
-                        '(is-left t tile' + beliefs.ally.x + '_' + beliefs.ally.y +'))))'
+                        '(is-left ?t tile' + beliefs.ally.x + '_' + beliefs.ally.y +'))))'
                     );
     
+                    //pddlProblem.saveToFile()
+
                     var plan = await planner.find_plan(pddlProblem)
                     .catch( error => {
                         return null;
                     });
 
-                    delivery_tile = plan[plan.length-1];
+                    var delivery_tile = plan[plan.length-1];
+                    var last_move = delivery_tile;
                     delivery_tile = delivery_tile.args[1];
                     delivery_tile = delivery_tile.replace('tile','')
                     delivery_tile = delivery_tile.split('_')
 
-                    plan.push('(put_down tile' + delivery_tile[0] + '_' + delivery_tile[1] + ')')
+                    plan.push({
+                        parallel: false,
+                        action: 'put-down',
+                        args: ['tile' + delivery_tile[0] + '_' + delivery_tile[1]]
+                    })
+
+                    plan.push({
+                        parallel: false,
+                        action: (last_move.action == 'move-up') ? 'move-down' : ((last_move.action == 'move-down') ? 'move-up' : ((last_move.action == 'move-left') ? 'move-right' : 'move-left')) ,
+                        args: [last_move.args[1],last_move.args[0]]
+                    })
 
                     var parcel = {
                         id:this.predicate.args[0].id, 
@@ -201,7 +215,7 @@ class Intention {
                 return ['plan not found', this.predicate ]
             }
 
-            var ret = await this.execute_plan(plan, planner)
+            var ret = await this.execute_plan(plan, planner, beliefs)
             .catch( error => {
                 console.log( 'Agent', beliefs.me.name, 'failed intention', this.predicate, 'with error:', error);
                 return [ 'failed intention', this.predicate ];
@@ -292,7 +306,7 @@ class Intention {
                 return ['plan not found', this.predicate ]
             }
 
-            var ret = await this.execute_plan(plan, planner)
+            var ret = await this.execute_plan(plan, planner, beliefs)
             .catch( error => {
                 console.log( 'Agent', beliefs.me.name, 'failed intention', this.predicate, 'with error:', error);
                 return [ 'failed intention', this.predicate ];
@@ -315,13 +329,13 @@ class Intention {
                 'and  (on tile' + this.predicate.args[0].x + '_' + this.predicate.args[0].y + ')'
             );
 
-            pddlProblem.saveToFile()
+            //pddlProblem.saveToFile()
             var plan = await planner.find_plan(pddlProblem)
             .catch( error => {
                 return null;
             });
 
-            var ret = await this.execute_plan(plan, planner)
+            var ret = await this.execute_plan(plan, planner, beliefs)
             .catch( error => {
                 console.log( 'Agent', beliefs.me.name, 'failed intention', this.predicate, 'with error:', error);
                 return [ 'failed intention', this.predicate ];
@@ -332,12 +346,17 @@ class Intention {
     }
 
     // Execute plan
-    async execute_plan(plan, planner){
+    async execute_plan(plan, planner, beliefs){
         if(!plan){
             return ['plan not found', this.predicate ]
         }
 
         for(const step of plan){
+            if(!this.check_plan_validity(step, plan, beliefs)){
+                console.log("Plan overlaps with other agent")
+                return [ 'failed intention', this.predicate ];
+            }
+
             if ( this.stopped ){
                 console.log('stopped')
                 return [ 'stopped intention', this.predicate ];
@@ -354,6 +373,23 @@ class Intention {
         }
 
         return ['succesful intention', this.predicate];
+    }
+
+    check_plan_validity(act_step, plan, beliefs){
+        var found = false;
+        
+        if (beliefs.ally != null ){
+            for(const step of plan){
+                if (act_step == step){
+                    found = true;
+                }
+    
+                if(found && (step.args[0] == "tile"+beliefs.ally.x+"_"+beliefs.ally.y || step.args[1] == "tile"+beliefs.ally.x+"_"+beliefs.ally.y)){
+                    return false;
+                }
+            }
+        }
+        return true
     }
 
     update_order(me){

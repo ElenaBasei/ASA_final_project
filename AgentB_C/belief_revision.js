@@ -111,6 +111,13 @@ class Beliefs {
         });
     }
 
+    send_first_info(){
+        this.client.shout( {
+            information_type: 'establish_alliance',
+            info: this.me
+        } );
+    }
+
     define_on_message(agent){
         //manage incoming messages
         this.client.onMsg( async (id, name, msg, reply) => {
@@ -207,7 +214,7 @@ class Beliefs {
                 //receive new ally information
                 case 'establish_alliance':
                     this.ally = msg.info;
-                    //console.log('Agent', this.me.name, 'received ally information', this.ally);
+                    console.log('Agent', this.me.name, 'received ally information', this.ally);
                     break;
 
                 //ally current intention
@@ -218,8 +225,8 @@ class Beliefs {
 
                 case 'new_pick_up':
                     //console.log('Agent', this.me.name, 'received new pick-up')
-                    if(agent.intention_queue[0].element.new_predicate != null){
-                        reply(agent.intention_queue[0].element.new_predicate)
+                    if(agent.intention.element.new_predicate != null){
+                        reply(agent.intention.element.new_predicate)
                     }
                     else{
                         reply(false);
@@ -269,16 +276,18 @@ class Beliefs {
     }
 
     async communicate_stop_for_pick_up(){
-        await this.client.say( this.ally.id, {
-            information_type: 'stop_for_pick_up'
-        } );
+        if (this.ally != null)
+            await this.client.say( this.ally.id, {
+                information_type: 'stop_for_pick_up'
+            } );
     }
 
     async communicate_delivery(id){
-        await this.client.say( this.ally.id, {
-            information_type: 'delivery',
-            info: id
-        } );
+        if (this.ally != null)
+            await this.client.say( this.ally.id, {
+                information_type: 'delivery',
+                info: id
+            } );
     }
 
     generate_beliefs_set(me_position=true){
@@ -317,9 +326,11 @@ class Beliefs {
         }
 
         for(const a of this.dbAgents){
-            let x = ((a[1].x%1 == 0.4) ? parseInt(a[1].x) : ((a[1].x%1 == 0.6) ? parseInt(a[1].x)+1 : parseInt(a[1].x)))
-            let y = ((a[1].y%1 == 0.4) ? parseInt(a[1].y) : ((a[1].y%1 == 0.6) ? parseInt(a[1].y)+1 : parseInt(a[1].y)))
-            myBeliefset.declare('obstacle tile' + x + '_' + y)
+            if(this.ally == null || a[0] != this.ally.id){
+                let x = ((a[1].x%1 == 0.4) ? parseInt(a[1].x) : ((a[1].x%1 == 0.6) ? parseInt(a[1].x)+1 : parseInt(a[1].x)))
+                let y = ((a[1].y%1 == 0.4) ? parseInt(a[1].y) : ((a[1].y%1 == 0.6) ? parseInt(a[1].y)+1 : parseInt(a[1].y)))
+                myBeliefset.declare('obstacle tile' + x + '_' + y)
+            }
         }
 
         return myBeliefset;

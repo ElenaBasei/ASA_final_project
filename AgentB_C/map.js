@@ -1,4 +1,5 @@
 //Environment map
+import { AStar } from "./astar.js";
 
 class EnvMap{
 
@@ -88,6 +89,27 @@ class EnvMap{
         }
         return myBeliefset;
     }
+
+    find_reachable_spawn_tiles(beliefs){
+        var astar_search = new AStar(this);
+        for(let i=0; i<this.spawn_tiles.length; i++){
+            let current_d = astar_search.search(this.map.get(beliefs.me.x).get(beliefs.me.y),
+                this.map.get(this.spawn_tiles[i].x).get(this.spawn_tiles[i].y), this.h);
+
+            if(current_d == -1){
+                this.spawn_tiles.splice(i,1);
+                i--;
+            }
+        }
+
+    }
+
+    h( {x:x1, y:y1}, {x:x2, y:y2}) {
+        const dx = Math.abs( Math.round(x1) - Math.round(x2) )
+        const dy = Math.abs( Math.round(y1) - Math.round(y2) )
+        return dx + dy;
+    }
+    
 
 }
 

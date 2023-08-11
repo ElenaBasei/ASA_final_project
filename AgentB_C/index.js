@@ -61,6 +61,12 @@ const agentC = new Agent(server_configC, clientC, beliefsC, env_mapC, plannerC);
 beliefsB.define_on_message(agentB);
 beliefsC.define_on_message(agentC);
 
+beliefsB.send_first_info();
+beliefsC.send_first_info();
+
+env_mapB.find_reachable_spawn_tiles(beliefsB);
+env_mapC.find_reachable_spawn_tiles(beliefsC)
+
 function h( {x:x1, y:y1}, {x:x2, y:y2}) {
     const dx = Math.abs( Math.round(x1) - Math.round(x2) )
     const dy = Math.abs( Math.round(y1) - Math.round(y2) )
@@ -99,16 +105,18 @@ function define_new_parcel_sensing(client, beliefs, agent, config, astar_search,
                 env_map.map.get(option.args[0].x).get(option.args[0].y), h);
     
             if(config[0].PARCEL_DECADING_INTERVAL == 'infinite'){
-                if ( current_d < best_utility ) {
+                if ( current_d < best_utility && current_d != -1) {
                     best_option = option;
                     best_utility = current_d;
                 }
             }
             else{
-                let reward = option.args[0].reward - (current_d*config[0].MOVEMENT_DURATION / 1000 / config[0].PARCEL_DECADING_INTERVAL)
-                if ( reward > best_utility ) {
-                    best_option = option;
-                    best_utility = reward;
+                if(current_d != -1){
+                    let reward = option.args[0].reward - (current_d*config[0].MOVEMENT_DURATION / 1000 / config[0].PARCEL_DECADING_INTERVAL)
+                    if ( reward > best_utility ) {
+                        best_option = option;
+                        best_utility = reward;
+                    }
                 }
             }
         }
@@ -140,7 +148,7 @@ function define_new_parcel_sensing(client, beliefs, agent, config, astar_search,
                     return false;
                 });
     
-                if(!status){
+                if(!status && beliefs.ally != null){
                     //beliefs.dbParcels.delete( best_option.args[0].id);
                     await client.say( beliefs.ally.id, {
                         information_type: 'drop_ally_intention',
