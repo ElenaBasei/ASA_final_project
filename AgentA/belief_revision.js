@@ -63,20 +63,20 @@ class Beliefs {
                     this.dbParcels.delete(p.id);
                     this.holding.splice(this.holding.indexOf(p),1);
                 }
+            }
 
-                for(const p in perceived_parcels){
-                    if(this.dbParcels.has(p.id) && p.carriedBy != null && p.carriedBy != this.me.id)
-                        this.dbParcels.delete(p.id);
-                    else if ( this.dbParcels.has(p.id) ) {
-                        const par = this.dbParcels.get(p.id);
-                        par.observtion_time = now;
-                        par.reward = p.reward;
-                        par.x = p.x;
-                        par.y = p.y;
-                        this.dbParcels.set(p.id, par);
-                    }
+            for(const p in perceived_parcels){
+                if(this.dbParcels.has(p.id) && p.carriedBy != null && p.carriedBy != this.me.id)
+                    this.dbParcels.delete(p.id);
+                else if ( this.dbParcels.has(p.id) ) {
+                    const par = this.dbParcels.get(p.id);
+                    par.observtion_time = now;
+                    par.reward = p.reward;
+                    par.x = p.x;
+                    par.y = p.y;
+                    this.dbParcels.set(p.id, par);
                 }
-            }  
+            }
         });
     }
 

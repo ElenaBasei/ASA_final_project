@@ -150,10 +150,8 @@ function define_new_parcel_sensing(client, beliefs, agent, config, astar_search,
     
                 if(!status && beliefs.ally != null){
                     //beliefs.dbParcels.delete( best_option.args[0].id);
-                    await client.say( beliefs.ally.id, {
-                        information_type: 'drop_ally_intention',
-                        info: best_option,
-                    } );
+                    beliefs.communicate_drop_pick_up_intention(best_option.id)
+
                     agent.revising_queue = false;
                 }
             }

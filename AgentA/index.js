@@ -70,16 +70,18 @@ client.onParcelsSensing( async (parcels) => {
         let current_d = astar_search.search(env_map.map.get(beliefs.me.x).get(beliefs.me.y), option.args[0], h);
 
         if(server_config[0].PARCEL_DECADING_INTERVAL == 'infinite'){
-            if ( current_d < best_utility ) {
+            if ( current_d < best_utility && current_d != -1) {
                 best_option = option;
                 best_utility = current_d;
             }
         }
         else{
-            let reward = option.args[0].reward - (current_d*server_config[0].MOVEMENT_DURATION / 1000 / server_config[0].PARCEL_DECADING_INTERVAL)
-            if ( reward > best_utility ) {
-                best_option = option;
-                best_utility = reward;
+            if(current_d != -1){
+                let reward = option.args[0].reward - (current_d*server_config[0].MOVEMENT_DURATION / 1000 / server_config[0].PARCEL_DECADING_INTERVAL)
+                if ( reward > best_utility ) {
+                    best_option = option;
+                    best_utility = reward;
+                }
             }
         }
     }

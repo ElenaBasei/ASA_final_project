@@ -53,6 +53,7 @@ class Agent {
 
                         if(reward <= 0){
                             console.log('Agent', this.beliefs.me.name, 'skipping intention', this.intention.element.predicate.desire, this.intention.element.predicate.args)
+                            this.beliefs.communicate_drop_pick_up_intention(this.intention.element.predicate.args[i].id)
                             this.intention.element.predicate.args.splice(i,1);
 
                             if(this.intention.element.predicate.args.length == 0){
@@ -70,6 +71,7 @@ class Agent {
 
                 this.resume();
 
+                // start acheiving intention
                 while(!success && achieve_trial<5 && !stopped){
                     console.log('Agent', this.beliefs.me.name, 'Try number', achieve_trial+1)
                     var status = await this.intention.element.achieve(this.planner, this.beliefs, this.env_map)
@@ -121,13 +123,12 @@ class Agent {
                     if(failed){
                         for(const p of this.intention.element.predicate.args){
                             this.beliefs.dbParcels.delete(p.id);
+                            this.beliefs.communicate_drop_pick_up_intention(p.id)
                         }
                     }
 
                     this.intention_queue.shift();
                 }
-
-                console.log("int" + this.intention.element)
                     
             }
             else if(!this.revising_queue){ //random move if the agent do not percive any parcel
@@ -211,12 +212,12 @@ class Agent {
         }
     }
 
+    //intention validity check
     async validity_check(){
         while(true){
             if (!this.revising_queue) {
                 this.revising_queue = true;
 
-                //check validity of intentions
                 for(let index=0; index<this.intention_queue.length; index++){
                     var intention = this.intention_queue[index].deep_copy();
                     var changed = false;
@@ -226,6 +227,7 @@ class Agent {
                             var predicate = intention.element.predicate.args[i];
 
                             if(!this.beliefs.dbParcels.has(predicate.id) || (predicate.carriedBy != null && predicate.carriedBy != this.beliefs.me.id)){
+                                this.beliefs.communicate_drop_pick_up_intention(intention.element.predicate.args[i].id)
                                 intention.element.predicate.args.splice(i,1);
                                 i--;
                                 changed = true;
@@ -234,7 +236,6 @@ class Agent {
 
                         if(intention.element.predicate.args.length == 0){
                             if(index == 0){
-                                console.log('here')
                                 this.stop();
                             }
                             this.intention_queue.splice(index, 1);
@@ -242,7 +243,6 @@ class Agent {
                         }
                         else if(changed){
                             if(index == 0){
-                                console.log('here2')
                                 this.stop();
                             }
                             this.intention_queue[index] = intention;
@@ -259,7 +259,6 @@ class Agent {
                     //console.log("intention queue" + this.intention_queue.length)
 
                     for(let i=1; i<this.intention_queue.length; i++){
-                        console.log(this.intention_queue[i])
                         start = prev_intention.delivery;
 
                         let intention_copy = this.intention_queue[i].deep_copy();
@@ -305,7 +304,7 @@ class Agent {
             console.log( 'Agent', this.beliefs.me.name, 'Revising intention queue. Received', predicate );        
             this.revising_queue = true;
 
-            // intention queue revision is case of random_move as first intention queued
+            // intention queue revision in case of random_move as first intention queued
             if(this.intention == null || ((this.intention != null && this.intention.element.predicate.desire == 'random_move')) && predicate){
                 this.stop();
                 console.log('Agent', this.beliefs.me.name, 'random')
@@ -404,13 +403,11 @@ class Agent {
                 } );
             }
 
-            console.log(predicate)
-
-            this.intention_queue.unshift(new QElement(new Intention(this,predicate)));
-            this.beliefs.dbParcels.set(predicate.args[0].id, predicate.args[0]);
-
-            console.log("predicate" + this.intention_queue[0].element.predicate)
-
+            if(predicate.args[0] != null){
+                this.intention_queue.unshift(new QElement(new Intention(this,predicate)));
+                this.beliefs.dbParcels.set(predicate.args[0].id, predicate.args[0]);
+            }
+                
             this.revising_queue = false;
         }
     }

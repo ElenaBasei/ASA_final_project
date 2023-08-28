@@ -93,18 +93,18 @@ class Beliefs {
                     this.dbParcels.delete(p.id);
                     this.holding.splice(this.holding.indexOf(p),1);
                 }
-
-                for(const p in perceived_parcels){
-                    if(this.dbParcels.has(p.id) && p.carriedBy != null && (p.carriedBy != this.me.id || (this.ally != null && p.carriedBy != this.ally.id)))
-                        this.dbParcels.delete(p.id);
-                    else if ( this.dbParcels.has(p.id) ) {
-                        const par = this.dbParcels.get(p.id);
-                        par.observtion_time = now;
-                        par.reward = p.reward;
-                        par.x = p.x;
-                        par.y = p.y;
-                        this.dbParcels.set(p.id, par);
-                    }
+            }
+            
+            for(const p in perceived_parcels){
+                if(this.dbParcels.has(p.id) && p.carriedBy != null && (p.carriedBy != this.me.id || (this.ally != null && p.carriedBy != this.ally.id)))
+                    this.dbParcels.delete(p.id);
+                else if ( this.dbParcels.has(p.id) ) {
+                    const par = this.dbParcels.get(p.id);
+                    par.observtion_time = now;
+                    par.reward = p.reward;
+                    par.x = p.x;
+                    par.y = p.y;
+                    this.dbParcels.set(p.id, par);
                 }
             }
             
@@ -201,10 +201,6 @@ class Beliefs {
                     this.dbParcels.set( parcel.id, parcel);
                     break;
 
-                case 'drop_ally_intention':
-                    this.dbParcels.delete(msg.info.id)
-                    break;
-
                 //update ally info
                 case 'ally_info':
                     this.ally = msg.info;
@@ -223,6 +219,7 @@ class Beliefs {
                     agent.stop('new_pick_up');
                     break;
 
+                //check if the new pick-up intention for the collaboration is ready
                 case 'new_pick_up':
                     //console.log('Agent', this.me.name, 'received new pick-up')
                     if(agent.intention.element.new_predicate != null){
@@ -233,6 +230,7 @@ class Beliefs {
                     }
                     break;
 
+                //check if the ally can reach the sent parcel
                 case 'send_unreachable_parcel':
                     //console.log('Agent', this.me.name, 'received new parcel to pick-up')
 
@@ -265,7 +263,13 @@ class Beliefs {
                     reply(status);
                     break;
 
+                //used to communicate the succesful delivery of a parcel
                 case 'delivery':
+                    this.dbParcels.delete(msg.info)
+                    break;
+
+                //communicate the decision to drop a pick-up intention
+                case 'drop_pick_up_intention':
                     this.dbParcels.delete(msg.info)
                     break;
 
@@ -286,6 +290,14 @@ class Beliefs {
         if (this.ally != null)
             await this.client.say( this.ally.id, {
                 information_type: 'delivery',
+                info: id
+            } );
+    }
+
+    async communicate_drop_pick_up_intention(id){
+        if (this.ally != null)
+            await this.client.say( this.ally.id, {
+                information_type: 'drop_pick_up_intention',
                 info: id
             } );
     }

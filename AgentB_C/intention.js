@@ -126,7 +126,6 @@ class Intention {
             var myBeliefset = beliefs.generate_beliefs_set(false);
             myBeliefset = map.update_belief_set(myBeliefset);
             myBeliefset.declare('on tile' + prev_position.x + '_' + prev_position.y);
-            console.log(beliefs.ally)
             if(beliefs.ally != null){
                 myBeliefset.declare('obstacle tile' + beliefs.ally.x + '_' + beliefs.ally.y);
             }  
@@ -277,7 +276,7 @@ class Intention {
                         'and (exist (?t) (and (on ?t) (or (is-up ?t tile' + beliefs.ally.x + '_' + beliefs.ally.y +') ' + 
                         '(is-right ?t tile' + beliefs.ally.x + '_' + beliefs.ally.y +') ' + 
                         '(is-down ?t tile' + beliefs.ally.x + '_' + beliefs.ally.y +') ' + 
-                        '(is-left t tile' + beliefs.ally.x + '_' + beliefs.ally.y +'))))'
+                        '(is-left ?t tile' + beliefs.ally.x + '_' + beliefs.ally.y +'))))'
                     );
     
                     var plan = await planner.find_plan(pddlProblem)
