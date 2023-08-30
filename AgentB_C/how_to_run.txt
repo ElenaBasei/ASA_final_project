@@ -1,0 +1,3 @@
+add the server host and the tokens of the two agents in the config.js failed
+
+run index.js after starting the server

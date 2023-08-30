@@ -81,6 +81,7 @@ class Intention {
                         return null;
                     });
     
+                    //check ally obstacle
                     if(!plan && beliefs.ally != null){
                         var myBeliefset = beliefs.generate_beliefs_set(false);
                         myBeliefset = map.update_belief_set(myBeliefset);
@@ -121,6 +122,7 @@ class Intention {
                 }                
             }
 
+            //parcel delivery
             this.predicate.desire = 'go_put_down';
 
             var myBeliefset = beliefs.generate_beliefs_set(false);
@@ -142,6 +144,7 @@ class Intention {
                 return null;
             });  
             
+            //check ally obstacle
             if(!plan && beliefs.ally != null){
                 var myBeliefset = beliefs.generate_beliefs_set(false);
                 myBeliefset = map.update_belief_set(myBeliefset);
@@ -163,6 +166,7 @@ class Intention {
                     return ['plan not found', this.predicate ]
                 }
                 else{
+                    //deliver the parcel in front of the ally so he can move in to a delivery zone
                     beliefs.communicate_stop_for_pick_up();
 
                     var pddlProblem = new PddlProblem(
@@ -225,6 +229,7 @@ class Intention {
             return ret;
             
         }
+        //put-down intention of holded parcels
         else if(this.predicate.desire == 'go_put_down'){
             console.log('Agent', beliefs.me.name, 'achieving intention', this.predicate);
 
@@ -247,6 +252,7 @@ class Intention {
                 return null;
             });
 
+            //check ally obstacle
             if(!plan && beliefs.ally != null){
                 var myBeliefset = beliefs.generate_beliefs_set();
                 myBeliefset = map.update_belief_set(myBeliefset);
@@ -267,6 +273,7 @@ class Intention {
                     return ['plan not found', this.predicate ]
                 }
                 else{
+                    //deliver the parcel in front of the ally so he can move in to a delivery zone
                     beliefs.communicate_stop_for_pick_up();
                     
                     var pddlProblem = new PddlProblem(
